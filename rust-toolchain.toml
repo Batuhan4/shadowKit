@@ -1,0 +1,5 @@
+# rust-toolchain.toml — pin per foundation §6 (Rust 1.94.1, Soroban wasm target wasm32v1-none, P23+)
+[toolchain]
+channel = "1.94.1"
+components = ["rustfmt", "clippy"]
+targets = ["wasm32v1-none"]
