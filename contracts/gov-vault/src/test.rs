@@ -527,6 +527,49 @@ fn reveal_lying_aggregate_rejected() {
 }
 
 // ============================================================================
+// Tasks C6a–C6b — full weighted quorum (min-voters) + double-reveal guard
+// ============================================================================
+
+#[test]
+fn weighted_quorum_fails_when_no_exceeds_yes() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (gov, _v) = deploy_with_committed_root(&env);
+    let id = create_proposal_with_deadline(&env, &gov, 1000);
+    let h0 = store_sealed(&env, &gov, id, 0xC1, 100);
+    let h1 = store_sealed(&env, &gov, id, 0xC2, 101);
+    let h2 = store_sealed(&env, &gov, id, 0xC3, 102);
+    advance_to(&env, 1001);
+    // yes=100, no=400 -> rejected even though 3 voters
+    let decs = soroban_sdk::vec![&env,
+        VoteDecryption { direction: 1, weight: 100, sealed_commitment_hash: h0 },
+        VoteDecryption { direction: 0, weight: 200, sealed_commitment_hash: h1 },
+        VoteDecryption { direction: 0, weight: 200, sealed_commitment_hash: h2 }];
+    gov.close_and_reveal(&id, &100i128, &400i128, &decs);
+    let v = gov.proposal(&id);
+    assert_eq!(v.status, ProposalStatus::Rejected);
+    assert!(!gov.is_approved(&id));
+    assert_eq!(v.weighted_yes, Some(100));
+    assert_eq!(v.weighted_no, Some(400));
+}
+
+#[test]
+fn weighted_quorum_fails_below_min_voters() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (gov, _v) = deploy_with_committed_root(&env);
+    let id = create_proposal_with_deadline(&env, &gov, 1000);
+    let h0 = store_sealed(&env, &gov, id, 0xD1, 100);
+    let h1 = store_sealed(&env, &gov, id, 0xD2, 101); // only 2 voters (< default min 3)
+    advance_to(&env, 1001);
+    let decs = soroban_sdk::vec![&env,
+        VoteDecryption { direction: 1, weight: 500, sealed_commitment_hash: h0 },
+        VoteDecryption { direction: 0, weight: 1,   sealed_commitment_hash: h1 }];
+    gov.close_and_reveal(&id, &500i128, &1i128, &decs);
+    assert_eq!(gov.proposal(&id).status, ProposalStatus::Rejected); // yes>no but <3 voters
+}
+
+// ============================================================================
 // Structural tests (carried from M1, migrated to the foundation init signature)
 // ============================================================================
 

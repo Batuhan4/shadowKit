@@ -279,9 +279,10 @@ impl GovVault {
         // aggregate inconsistent with the stored ciphertexts (the four guards live in reveal.rs).
         let (yes, no) = reveal::reaggregate(&env, &sealed, &decryptions, revealed_yes_w, revealed_no_w);
 
-        // C4 SCOPE quorum (minimal): weighted_yes > weighted_no ONLY. The `votes_cast >= min_voters`
-        // clause + the `yes_must_exceed_no` config term are added red-before-green in C6a.
-        let passed = yes > no;
+        // C6a: full quorum (foundation §5): yes>no (when configured) AND votes_cast >= min_voters.
+        let cfg: QuorumCfg = storage::get_quorum_cfg(&env);
+        let voters = sealed.len();
+        let passed = (!cfg.yes_must_exceed_no || yes > no) && voters >= cfg.min_voters;
 
         rec.weighted_yes = Some(yes);
         rec.weighted_no = Some(no);
