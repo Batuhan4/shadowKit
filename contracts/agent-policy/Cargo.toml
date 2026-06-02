@@ -5,11 +5,25 @@ edition = { workspace = true }
 publish = false
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 doctest = false
+
+[features]
+default = []
+handrolled = []
 
 [dependencies]
 soroban-sdk = { workspace = true }
+# The OZ Smart Accounts crate is `stellar-accounts` (NO `accounts` feature; it IS the accounts package).
+# SOURCE: packages/accounts/Cargo.toml `name = "stellar-accounts"` (verified 2026-06-02).
+stellar-accounts = { workspace = true }
+shadowkit-shared = { path = "../shared" }
+# gov-vault as rlib so we can generate its contract client for cross-contract reads
+gov-vault = { path = "../gov-vault", default-features = false }
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
+stellar-accounts = { workspace = true }   # host + verifier building blocks for the integration test
+fallback-amm = { path = "../fallback-amm" }
+swap-venue = { path = "../swap-venue" }
+ed25519-dalek = { workspace = true }       # real ed25519 signatures in tests

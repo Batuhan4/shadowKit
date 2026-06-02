@@ -19,10 +19,19 @@ edition = "2021"
 [workspace.dependencies]
 soroban-sdk = "26.0.0"
 # The OZ Smart Accounts crate is `stellar-accounts` (NOT `openzeppelin-stellar-contracts`).
-# It has NO `accounts` feature — the crate IS the accounts package. Depend on it plainly.
-# SOURCE: OpenZeppelin/stellar-contracts packages/accounts/Cargo.toml `name = "stellar-accounts"` (verified 2026-06-02).
-stellar-accounts = "0.7.1"
-stellar-contract-utils = "0.7.1"   # only if the host needs `upgradeable`; otherwise unused
+# It has NO `accounts` feature — the crate IS the accounts package.
+#
+# DIVERGENCE FROM PLAN (M2-V1a empirical finding, 2026-06-02): the *published* crates.io
+# `stellar-accounts 0.7.1` pins `soroban-sdk ^25.3.0`, NOT 26.0.0. The plan's accuracy block
+# read the git `main` branch (which carries the unreleased post-0.7.1 work under the same version
+# number on soroban-sdk 26.0.0). Using the crates.io release alongside our 26.0.0 workspace put
+# TWO soroban-sdk majors (25.0.1 + 26.1.3 env-common) in the tree and made `impl Policy` fail to
+# compile (E0053 incompatible enforce/install/uninstall signatures; Val/Context TryFromVal across
+# distinct Env types). FIX: pin a git rev that targets soroban-sdk 26.0.0. `v0.8.0-rc.1` == main
+# HEAD c5632d9 (2026-06-02) and pins `soroban-sdk = "26.0.0"` with the same documented Policy trait.
+# SOURCE: OpenZeppelin/stellar-contracts @ v0.8.0-rc.1 (c5632d9) packages/accounts/Cargo.toml.
+stellar-accounts = { git = "https://github.com/OpenZeppelin/stellar-contracts", tag = "v0.8.0-rc.1" }
+stellar-contract-utils = { git = "https://github.com/OpenZeppelin/stellar-contracts", tag = "v0.8.0-rc.1" }   # host upgradeable trait if used
 ed25519-dalek = "2.1.1"            # dev: produce real ed25519 test signatures
 
 # SOURCE: stellar/soroban-examples workspace Cargo.toml (verified raw GitHub 2026-06-02)
