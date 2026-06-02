@@ -6,6 +6,23 @@ export interface RpcReader {
   readProposalStatus(proposalId: number): Promise<ProposalStatus>;
 }
 
+/** Normalize a GovVault.proposal(id) `result` to a plain ProposalStatus string, tolerating BOTH:
+ *   (a) the LIVE generated-binding shape — `proposal` returns Result<ProposalView> so `result` is an
+ *       Ok wrapper (`.unwrap()` -> ProposalView) and `status` is a tagged enum `{ tag: "Approved" }`; AND
+ *   (b) the transport-test mock shape — a plain `{ status: "Approved" }`.
+ * SOURCE: live decode probed against the deployed gov-vault (contract.Client.from): `tx.result`
+ * exposes `.unwrap()`/`.isOk()` and `status` decodes to `{ tag }` (verified 2026-06-03). The agent's
+ * RPC-transport tests stub the SDK to return plain strings, so we must accept both forms. */
+export function normalizeStatus(result: unknown): ProposalStatus {
+  const r = result as { unwrap?: () => unknown } | undefined;
+  const view = (r && typeof r.unwrap === "function" ? r.unwrap() : r) as
+    | { status?: unknown }
+    | undefined;
+  const s = view?.status as { tag?: string } | string | undefined;
+  if (s && typeof s === "object" && typeof s.tag === "string") return s.tag as ProposalStatus;
+  return s as ProposalStatus;
+}
+
 export interface WatcherCfg {
   rpcUrl: string;
   govVaultId: string;
@@ -38,10 +55,10 @@ export class Watcher {
     // proposal(id) is a read; AssembledTransaction.result holds the decoded ProposalView.
     const tx = await (
       client as unknown as {
-        proposal: (a: { id: number }) => Promise<{ result: { status: ProposalStatus } }>;
+        proposal: (a: { id: number }) => Promise<{ result: unknown }>;
       }
     ).proposal({ id: proposalId });
-    return tx.result.status;
+    return normalizeStatus(tx.result);
   }
 
   async waitForApproved(proposalId: number, pollMs = 1000): Promise<void> {

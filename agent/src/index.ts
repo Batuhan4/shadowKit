@@ -70,10 +70,15 @@ export class AgentRunner {
       });
       const tx = await (
         c as unknown as {
-          proposal: (a: { id: number }) => Promise<{ result: { action_spec: unknown; cap: bigint } }>;
+          proposal: (a: { id: number }) => Promise<{ result: unknown }>;
         }
       ).proposal({ id });
-      return tx.result;
+      // Live `proposal` returns Result<ProposalView> (Ok wrapper w/ .unwrap()); the transport tests
+      // return the ProposalView directly. Tolerate both (matches watcher.normalizeStatus rationale).
+      const r = tx.result as { unwrap?: () => unknown } | undefined;
+      return (
+        r && typeof r.unwrap === "function" ? r.unwrap() : r
+      ) as { action_spec: unknown; cap: bigint };
     };
     const toTsSpec = (raw: unknown): ActionSpec => {
       const s = raw as { asset_in: string; asset_out: string; amount: bigint; min_out: bigint };

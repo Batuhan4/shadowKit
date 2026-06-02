@@ -1,5 +1,6 @@
 import type { ActionSpec } from "@shadowkit/shared";
 import type { ActionPlan } from "./planner";
+import { normalizeStatus } from "./watcher";
 import { contract, Keypair } from "@stellar/stellar-sdk";
 
 // basicNodeSigner is exported from @stellar/stellar-sdk/contract (re-exported under the `contract`
@@ -117,8 +118,10 @@ export class StellarChainGateway implements ChainGateway {
   async isExecuted(proposalId: number): Promise<boolean> {
     const c = await this.client(this.cfg.govVaultId);
     const tx = await (
-      c as unknown as { proposal: (a: { id: number }) => Promise<{ result: { status: string } }> }
+      c as unknown as { proposal: (a: { id: number }) => Promise<{ result: unknown }> }
     ).proposal({ id: proposalId });
-    return tx.result.status === "Executed";
+    // normalizeStatus tolerates both the live Result<ProposalView>+tagged-enum shape and the
+    // transport-test plain-string shape (see watcher.ts).
+    return normalizeStatus(tx.result) === "Executed";
   }
 }

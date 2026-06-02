@@ -44,3 +44,6 @@ secrets/
 !circuits/vote/fixtures/*.zkey
 !circuits/vote/fixtures/*.ptau
 !circuits/vote/fixtures/*.json
+
+# e2e-hero esbuild bundle (transient)
+.run-e2e-bundle.mjs
