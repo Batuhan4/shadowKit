@@ -1141,3 +1141,29 @@ fn coordinator_reveal_accepts_admin_asserted_aggregate() {
     assert_eq!(v.weighted_no, Some(100));
     assert_eq!(v.status, ProposalStatus::Approved);
 }
+
+// ============================================================================
+// Task D3 — coordinator-mode END-TO-END: the off-chain D2 coordinatorReveal aggregate (yes=700,no=100)
+// drives the on-chain coordinator-reveal close to Approved. The fallback's connecting proof (charter
+// rule 3 "no untested escape hatches"). Compiled ONLY under `--features coordinator-reveal`.
+// ============================================================================
+#[cfg(feature = "coordinator-reveal")]
+#[test]
+fn coordinator_mode_e2e_offchain_aggregate_drives_onchain_approved() {
+    let t = TestCtx::new();
+    let id = t.create_proposal_with_deadline(1000);
+    // In coordinator mode votes are committed off-chain (D2 sha256 commit-reveal). On-chain we
+    // store opaque sealed blobs (participation only) and trust the coordinator-asserted aggregate.
+    let _h0 = t.store_sealed(id, 0x10, 100);
+    let _h1 = t.store_sealed(id, 0x11, 101);
+    let _h2 = t.store_sealed(id, 0x12, 102);
+    t.advance_to(1001);
+    t.env.mock_all_auths(); // coordinator==admin require_auth (feature-gated in close_and_reveal)
+    // The (700,100) here are EXACTLY the off-chain D3.1 coordinatorReveal output (yes=700,no=100).
+    t.client.close_and_reveal(&id, &700i128, &100i128, &soroban_sdk::vec![&t.env]);
+    let v = t.client.proposal(&id);
+    assert_eq!(v.weighted_yes, Some(700)); // off-chain aggregate == on-chain result
+    assert_eq!(v.weighted_no, Some(100));
+    assert_eq!(v.status, ProposalStatus::Approved); // 700>100 AND 3 voters >= min 3
+    assert!(t.client.is_approved(&id));
+}
