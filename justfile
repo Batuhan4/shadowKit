@@ -69,6 +69,26 @@ test-ts:
 web-test:
     npm run test --workspace web
 
+# ---- M6: x402 services (both directions) ----
+# Runs the unit + non-env-gated suites for the three x402 packages (shared-x402, premium-data,
+# shadowkit-api). The LIVE 3-account testnet settlement tests inside these projects SKIP cleanly
+# unless CLIENT_SECRET/FACILITATOR_SECRET/RESOURCE_SERVER_ADDRESS are set (charter rule 4 — a real
+# USDC x402 settlement needs 3 funded testnet accounts + Circle-faucet USDC). To exercise the LIVE
+# path: provision 3 funded accounts (Friendbot + USDC trustlines + Circle-faucet USDC for the
+# CLIENT), export those env vars (e.g. via `set -a; . ./.env.x402; set +a`), then re-run `just test-x402`.
+test-x402:
+    npx vitest run --project @shadowkit/x402-shared --project @shadowkit/x402-premium-data --project @shadowkit/x402-api
+
+# Run the agent-pays premium-data service on $PREMIUM_DATA_PORT (default 4100). Needs
+# RESOURCE_SERVER_ADDRESS + X402_FACILITATOR_URL in the env (foundation §3.6a).
+x402-premium-data-up:
+    npm run start --workspace @shadowkit/x402-premium-data
+
+# Run the ShadowKit-sells verify/execute API on $SHADOWKIT_API_PORT (default 4200). Needs the x402
+# env (RESOURCE_SERVER_ADDRESS, X402_FACILITATOR_URL) + GOV_VAULT_ID + RPC_URL (foundation §3.6).
+x402-api-up:
+    npm run start --workspace @shadowkit/x402-api
+
 # circuit-test is a DOCUMENTED no-op until M4 (the circuit is milestone M4 / spec §11). It runs
 # circuits/vote's `test` script which prints an M4-deferral message and exits 0. It asserts nothing
 # and is explicitly whitelisted by the Task 21 no-cheating audit. Drop-in: M4 replaces the script body.
