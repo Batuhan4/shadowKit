@@ -74,3 +74,7 @@ secrets/
 
 # e2e-hero esbuild bundle (transient)
 .run-e2e-bundle.mjs
+
+# demo (scripts/demo) transient esbuild bundles + the artifacts symlink they resolve poseidon wasm via
+.demo-bundle/
+/artifacts

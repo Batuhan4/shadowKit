@@ -151,3 +151,34 @@ e2e: net-up
 # Exits non-zero on any mismatch. Required (not optional) when Docker is present.
 e2e-hero:
     bash scripts/e2e-hero.sh
+
+# ---- M6 SHOWCASE: the full SEALED-ZK demo loop (the M6 hero deliverable) ----
+# private SEALED vote (REAL Groth16 proof + REAL tlock seal) -> deadline -> tlock REVEAL ->
+# on-chain close_and_reveal (weighted tally) -> agent auto-executes the approved swap through the
+# policy-gated treasury -> REAL on-chain balance movement (USDC down, WXLM up) + proposal Executed.
+# scripts/demo.sh net-ups + deploys the FULL sealed system (groth16-verifier + sealed gov-vault +
+# FallbackAMM + agent-policy + treasury), creates a proposal with a near deadline, casts 3 REAL sealed
+# votes (direction HIDDEN on-chain), asserts NO tally leaks before close, tlock-decrypts at the
+# deadline (REAL drand quicknet), closes on-chain, runs the REAL agent swap, and asserts the deltas.
+# REVEAL MODE: real-tlock by default (REVEAL_MODE=timelock); REVEAL_MODE=coordinator is the documented
+# fallback. "Demo never dies" — runnable repeatedly.
+demo:
+    bash scripts/demo.sh --network local
+
+# Run the demo on TESTNET (the M6 primary deliverable). deploy-testnet.sh provisions the full sealed
+# system on testnet; demo.sh --network testnet then runs the loop and asserts the real deltas.
+demo-testnet:
+    bash scripts/deploy-testnet.sh
+    bash scripts/demo.sh --network testnet
+
+# Deploy the full SEALED system (parameterized): `just deploy-demo` (local) writes .env.demo.local;
+# the testnet form is `bash scripts/deploy-testnet.sh` (writes .env.demo.testnet).
+deploy-demo:
+    bash scripts/deploy-demo.sh --network local
+
+# The demo-script TEST (the user's "demo script test" requirement). Runs the full LOCAL loop TWICE via
+# vitest and asserts both runs print "DEMO OK (local)". Gated on RUN_DEMO_TEST=1 (drives the live
+# local container + real proving + real tlock; documented gate, charter rule 4 — not a bare skip).
+demo-test:
+    just net-up
+    RUN_DEMO_TEST=1 npx vitest run --config scripts/vitest.config.ts
