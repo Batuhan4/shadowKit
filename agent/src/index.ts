@@ -1,6 +1,6 @@
 import type { AgentLog, ActionSpec } from "@shadowkit/shared";
 import { LogBus } from "./logBus";
-import { DeterministicPlanner, ClaudePlanner, type Planner, type ActionPlan } from "./planner";
+import { DeterministicPlanner, GeminiPlanner, type Planner, type ActionPlan } from "./planner";
 import { DataClient, type MarketData } from "./dataClient";
 import { Watcher } from "./watcher";
 import { Executor } from "./executor";
@@ -14,8 +14,13 @@ export interface AgentConfig {
   swapVenueId: string;
   sessionSecretKey: string;
   premiumDataUrl: string;
-  anthropicApiKey: string;
+  geminiApiKey: string;
   useDeterministicPlanner: boolean;
+}
+
+/** Resolve the planner model: env override wins, else gemini-2.5-flash (foundation §6, configurable). */
+function resolveModel(): string {
+  return process.env.GEMINI_MODEL || "gemini-2.5-flash";
 }
 
 /** TS read-adapter over the GovVault binding (foundation §3.5 GovReader). Invents no contract method —
@@ -99,8 +104,8 @@ export class AgentRunner {
       dataClient: { fetchMarket: (pair) => dataClient.fetchMarket(pair) },
       govReader,
       executor: { executeSwap: (plan, spec, cap, id) => executor.executeSwap(plan, spec, cap, id) },
-      makeClaudePlanner: (_logBus) =>
-        new ClaudePlanner({ apiKey: this.cfg.anthropicApiKey, model: "claude-3-7-sonnet-latest" }),
+      makeClaudePlanner: (logBus) =>
+        new GeminiPlanner({ apiKey: this.cfg.geminiApiKey, model: resolveModel(), logBus }),
       makeDeterministicPlanner: () => new DeterministicPlanner(),
     };
   }
@@ -136,4 +141,4 @@ export class AgentRunner {
 }
 
 export type { ActionPlan, Planner, MarketData };
-export { LogBus, DeterministicPlanner, ClaudePlanner, DataClient, Watcher, Executor };
+export { LogBus, DeterministicPlanner, GeminiPlanner, DataClient, Watcher, Executor };

@@ -65,7 +65,7 @@ async function main(): Promise<void> {
     swapVenueId: ammId,
     sessionSecretKey,
     premiumDataUrl: process.env.PREMIUM_DATA_URL ?? "http://localhost:0",
-    anthropicApiKey: process.env.ANTHROPIC_API_KEY ?? "",
+    geminiApiKey: process.env.GEMINI_API_KEY ?? "",
     useDeterministicPlanner: true,
   };
 

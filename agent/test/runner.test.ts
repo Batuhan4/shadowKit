@@ -33,7 +33,7 @@ const cfg = {
   swapVenueId: "CAMM",
   sessionSecretKey: "S...",
   premiumDataUrl: "http://d",
-  anthropicApiKey: "k",
+  geminiApiKey: "k",
   useDeterministicPlanner: true,
 };
 
