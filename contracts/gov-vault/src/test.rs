@@ -111,6 +111,16 @@ fn store_n_sealed(env: &Env, gov: &GovVaultClient, id: u32, n: u32) {
     }
 }
 
+/// Create a proposal whose deadline is exactly `deadline` (sets a near-zero base time first).
+fn create_proposal_with_deadline(env: &Env, gov: &GovVaultClient, deadline: u64) -> u32 {
+    set_time(env, 1);
+    let spec = sample_spec(env);
+    gov.create_proposal(&spec, &15_000i128, &deadline)
+}
+
+/// Advance the ledger clock to `ts`.
+fn advance_to(env: &Env, ts: u64) { set_time(env, ts); }
+
 // ============================================================================
 // Task 4.19a — init reintroduces verifier + merkle_root (foundation §2.2)
 // ============================================================================
@@ -394,6 +404,24 @@ fn proposal_exposes_no_tally_before_close() {
     assert_eq!(view.weighted_yes, None);   // tally SEALED
     assert_eq!(view.weighted_no, None);
     assert_eq!(view.status, ProposalStatus::Open);
+}
+
+// ============================================================================
+// Task C3 — close_and_reveal rejects a PRE-DEADLINE reveal
+// ============================================================================
+
+use shadowkit_shared::VoteDecryption;
+
+#[test]
+fn close_and_reveal_before_deadline_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (gov, _v) = deploy_with_committed_root(&env);
+    let id = create_proposal_with_deadline(&env, &gov, 1000); // deadline far in the future
+    store_n_sealed(&env, &gov, id, 3);
+    // ledger time is BEFORE the deadline -> must reject DeadlineNotReached
+    let res = gov.try_close_and_reveal(&id, &0i128, &0i128, &soroban_sdk::vec![&env]);
+    assert_eq!(res, Err(Ok(GovError::DeadlineNotReached)));
 }
 
 // ============================================================================

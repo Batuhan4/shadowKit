@@ -1,5 +1,6 @@
 #![no_std]
 mod storage;
+mod reveal;
 #[cfg(test)]
 mod test;
 #[cfg(test)]
@@ -244,6 +245,33 @@ impl GovVault {
         rec.status = ProposalStatus::Executed;
         storage::set_proposal(&env, id, &rec);
         ProposalExecuted { id }.publish(&env);
+        Ok(())
+    }
+
+    /// The sealed close path (foundation §2.2): re-aggregate the submitted decryptions against the
+    /// stored sealed votes on-chain, set the weighted tally + Approved|Rejected by quorum. The SOLE
+    /// close path (M1's plaintext `close` is retired in C7).
+    /// CARRY-FORWARD: returns Result<(), GovError> (NOT panic_with_error!) so try_close_and_reveal()
+    /// == Err(Ok(GovError::X)) negatives hold.
+    ///
+    /// C3 SCOPE: deadline guard only. The re-aggregation body + quorum (C4/C6a), the four
+    /// reaggregate guards (C5a..C5d) and the AlreadyRevealed guard (C6b) are added red-before-green.
+    pub fn close_and_reveal(
+        env: Env,
+        id: u32,
+        revealed_yes_w: i128,
+        revealed_no_w: i128,
+        decryptions: Vec<shadowkit_shared::VoteDecryption>,
+    ) -> Result<(), GovError> {
+        let _rec = match storage::try_get_proposal(&env, id) {
+            Some(r) => r,
+            None => return Err(GovError::ProposalNotFound),
+        };
+        // C3: reject reveal before the deadline.
+        if env.ledger().timestamp() < _rec.deadline {
+            return Err(GovError::DeadlineNotReached);
+        }
+        let _ = (revealed_yes_w, revealed_no_w, &decryptions); // consumed by the C4/C5/C6 body
         Ok(())
     }
 }
