@@ -10,18 +10,19 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "astro": "6.4.2",
     "@astrojs/react": "5.0.6",
+    "@shadowkit/shared": "0.1.0",
+    "astro": "6.4.2",
     "react": "19.0.0",
-    "react-dom": "19.0.0",
-    "@shadowkit/shared": "0.1.0"
+    "react-dom": "19.0.0"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "6.6.3",
+    "@testing-library/react": "16.1.0",
+    "@testing-library/user-event": "14.6.1",
     "@types/react": "19.0.0",
     "@types/react-dom": "19.0.0",
-    "@testing-library/react": "16.1.0",
-    "@testing-library/jest-dom": "6.6.3",
-    "jsdom": "25.0.1",
-    "@vitejs/plugin-react": "5.0.3"
+    "@vitejs/plugin-react": "5.0.3",
+    "jsdom": "25.0.1"
   }
 }
