@@ -644,3 +644,132 @@ fn allow_valid_swap() {
     let res = s.policy.try_test_enforce(&ctx, &s.sa);
     assert_eq!(res, Ok(Ok(())), "valid swap must be allowed");
 }
+
+// ---- The reject matrix (each asserts the EXACT PolicyError via try_test_enforce). The safeguard. ----
+
+#[test]
+fn reject_not_approved() {
+    let s = gates::setup_open(15_000i128); // created, not voted/closed -> is_approved == false
+    let ctx = gates::swap_ctx(&s.env, &s.amm, &s.asset_in, 1_000, 1, &s.sa);
+    let res = s.policy.try_test_enforce(&ctx, &s.sa);
+    assert_eq!(res, Err(Ok(PolicyError::NotApproved)));
+}
+
+#[test]
+fn reject_over_cap() {
+    let s = gates::setup(10_000i128);
+    let ctx = gates::swap_ctx(&s.env, &s.amm, &s.asset_in, 10_001, 1, &s.sa);
+    assert_eq!(
+        s.policy.try_test_enforce(&ctx, &s.sa),
+        Err(Ok(PolicyError::OverCap))
+    );
+}
+
+#[test]
+fn reject_wrong_target() {
+    let s = gates::setup(10_000i128);
+    let bad = Address::generate(&s.env);
+    let ctx = gates::swap_ctx(&s.env, &bad, &s.asset_in, 1_000, 1, &s.sa);
+    assert_eq!(
+        s.policy.try_test_enforce(&ctx, &s.sa),
+        Err(Ok(PolicyError::WrongTarget))
+    );
+}
+
+#[test]
+fn reject_wrong_asset() {
+    let s = gates::setup(10_000i128);
+    let bad_asset = Address::generate(&s.env);
+    let ctx = gates::swap_ctx(&s.env, &s.amm, &bad_asset, 1_000, 1, &s.sa);
+    assert_eq!(
+        s.policy.try_test_enforce(&ctx, &s.sa),
+        Err(Ok(PolicyError::WrongAsset))
+    );
+}
+
+#[test]
+fn reject_wrong_asset_out() {
+    // Approve a proposal whose action.asset_out == action.asset_in (not a real, approved output).
+    // Proves gate (f): the policy binds the swap to the APPROVED output asset; a hallucinating agent
+    // cannot route funds to a worthless/self token.
+    let env = Env::default();
+    env.mock_all_auths();
+    let (gv, gov) = fixtures::deploy_gov(&env);
+    let amm = Address::generate(&env);
+    let asset_in = Address::generate(&env);
+    // asset_out deliberately == asset_in -> gate (f) WrongAssetOut
+    let id = fixtures::approve_swap(&env, &gv, &asset_in, &asset_in, 10_000, 10_000);
+    let sa = Address::generate(&env);
+    let pid = env.register(AgentPolicy, ());
+    let policy = AgentPolicyClient::new(&env, &pid);
+    policy.test_set_params(
+        &sa,
+        &AgentPolicyParams {
+            gov_vault: gov,
+            approved_amm: amm.clone(),
+            treasury_asset: asset_in.clone(),
+            proposal_id: id,
+        },
+    );
+    let ctx = gates::swap_ctx(&env, &amm, &asset_in, 1_000, 1, &sa);
+    assert_eq!(
+        policy.try_test_enforce(&ctx, &sa),
+        Err(Ok(PolicyError::WrongAssetOut))
+    );
+}
+
+#[test]
+fn reject_already_executed() {
+    let s = gates::setup(10_000i128);
+    // status -> Executed. mark_executed's executor require_auth is satisfied by setup's
+    // mock_all_auths (which also set_executor'd the gov-vault); the gate under test is the policy's
+    // already-executed rejection (real).
+    GovVaultClient::new(&s.env, &s.gov).mark_executed(&s.id);
+    let ctx = gates::swap_ctx(&s.env, &s.amm, &s.asset_in, 1_000, 1, &s.sa);
+    assert_eq!(
+        s.policy.try_test_enforce(&ctx, &s.sa),
+        Err(Ok(PolicyError::AlreadyExecuted))
+    );
+}
+
+#[test]
+fn reject_wrong_fn() {
+    let s = gates::setup(10_000i128);
+    // arity-4 args so it reaches the fn gate (fn_name != "swap")
+    let args: Vec<Val> = soroban_sdk::vec![
+        &s.env,
+        s.asset_in.into_val(&s.env),
+        1_000i128.into_val(&s.env),
+        1i128.into_val(&s.env),
+        s.sa.into_val(&s.env)
+    ];
+    let ctx = Context::Contract(ContractContext {
+        contract: s.amm.clone(),
+        fn_name: symbol_short!("transfer"),
+        args,
+    });
+    assert_eq!(
+        s.policy.try_test_enforce(&ctx, &s.sa),
+        Err(Ok(PolicyError::WrongFn))
+    );
+}
+
+#[test]
+fn reject_malformed_args() {
+    let s = gates::setup(10_000i128);
+    // a `swap` context with WRONG arity (2 args) -> MalformedArgs, NOT WrongAsset/OverCap
+    let args: Vec<Val> = soroban_sdk::vec![
+        &s.env,
+        s.asset_in.into_val(&s.env),
+        1_000i128.into_val(&s.env)
+    ];
+    let ctx = Context::Contract(ContractContext {
+        contract: s.amm.clone(),
+        fn_name: symbol_short!("swap"),
+        args,
+    });
+    assert_eq!(
+        s.policy.try_test_enforce(&ctx, &s.sa),
+        Err(Ok(PolicyError::MalformedArgs))
+    );
+}

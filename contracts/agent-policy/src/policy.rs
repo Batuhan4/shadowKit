@@ -73,13 +73,18 @@ pub fn check_swap_gates(
     }
     // cross-contract reads of GovVault (DIRECT path; §13.4 verdict: cross-read in enforce works).
     let gv = GovVaultClient::new(e, gov_vault);
+    // (b) BEFORE (a): once a proposal is Executed its status is Executed (NOT Approved), so
+    //     is_approved() returns false. Checking is_approved first would mask an executed proposal
+    //     as NotApproved and the distinct AlreadyExecuted code would be unreachable. So read the
+    //     status once and reject an already-executed proposal with its own code FIRST. (FIX vs the
+    //     plan's snippet, which ordered (a) before (b); empirically AlreadyExecuted was unreachable.)
+    let status = gv.proposal(&proposal_id).status;
+    if status == ProposalStatus::Executed {
+        return Err(PolicyError::AlreadyExecuted);
+    }
     // (a) approved
     if !gv.is_approved(&proposal_id) {
         return Err(PolicyError::NotApproved);
-    }
-    // (b) not executed
-    if gv.proposal(&proposal_id).status == ProposalStatus::Executed {
-        return Err(PolicyError::AlreadyExecuted);
     }
     // bind to the APPROVED ActionSpec (anti-hallucination: cannot route to an unapproved output asset)
     let action = gv.action_of(&proposal_id);
