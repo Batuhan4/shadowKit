@@ -505,6 +505,10 @@ fn test_mark_executed_single_shot() {
     set_time(&env, 2_001);
     client.close(&id);
     assert_eq!(client.is_approved(&id), true);
+    // M2-0c: configure + authorize the executor (the gate). mock_all_auths (set in vote_scenario)
+    // still satisfies the executor's require_auth, but the executor is now explicit.
+    let agent = Address::generate(&env);
+    client.set_executor(&agent);
     client.mark_executed(&id);
     let view = client.proposal(&id);
     assert_eq!(view.status, ProposalStatus::Executed);
@@ -520,6 +524,9 @@ fn test_mark_executed_requires_approved() {
     set_time(&env, 2_001);
     client.close(&id);
     assert_eq!(client.is_approved(&id), false);
+    // M2-0c: executor configured + authorized; the NotApproved business rule is what rejects.
+    let agent = Address::generate(&env);
+    client.set_executor(&agent);
     assert_eq!(client.try_mark_executed(&id), Err(Ok(GovError::NotApproved)));
 }
 
@@ -567,6 +574,10 @@ fn integration_vote_to_approve_flow() {
     assert_eq!(client.cap_of(&id), 15_000);
     assert_eq!(client.action_of(&id), spec);
 
+    // M2-0c: configure the executor (the AgentPolicy smart-account wallet) before single-shot exec.
+    let agent = Address::generate(&env);
+    client.set_executor(&agent);
+
     // execute single-shot
     client.mark_executed(&id);
     assert_eq!(client.proposal(&id).status, ProposalStatus::Executed);
@@ -591,6 +602,78 @@ fn integration_no_quorum_blocks_execution() {
     set_time(&env, 2_001);
     client.close(&id);
     assert_eq!(client.is_approved(&id), false);
-    // execution blocked on-chain
+    // execution blocked on-chain (set_executor + authorize, so the auth gate is exercised, not the
+    // missing-executor path — the NotApproved business rule is what must reject this).
+    client.set_executor(&a);
     assert_eq!(client.try_mark_executed(&id), Err(Ok(GovError::NotApproved)));
+}
+
+// ============================================================================
+// Task M2-0c — tighten mark_executed to require_auth on the configured executor
+//   (foundation §2.2 auth gate: ONLY the AgentPolicy address set via set_executor may mark).
+// ============================================================================
+use soroban_sdk::testutils::{MockAuth, MockAuthInvoke};
+use soroban_sdk::{vec as sdk_vec, IntoVal};
+
+// A configured executor, authorized for the mark_executed call, succeeds and the proposal
+// transitions to Executed. Auth is scoped to ONLY the executor (real auth, not mock_all_auths),
+// so the gate is genuinely satisfied by the configured address.
+#[test]
+fn mark_executed_allows_configured_executor() {
+    let (env, client, admin, usdc) = setup();
+    // Build an approved proposal via the existing helper (uses mock_all_auths internally).
+    let id = vote_scenario(&env, &client, &admin, &usdc, 3, 0, 2_000);
+    set_time(&env, 2_001);
+    client.close(&id);
+    assert_eq!(client.is_approved(&id), true);
+
+    // Configure the executor (admin-auth). mock_all_auths from vote_scenario still covers this.
+    let agent = Address::generate(&env);
+    client.set_executor(&agent);
+
+    // Now authorize ONLY `agent` for the mark_executed invocation (scoped real auth).
+    client
+        .mock_auths(&[MockAuth {
+            address: &agent,
+            invoke: &MockAuthInvoke {
+                contract: &client.address,
+                fn_name: "mark_executed",
+                args: sdk_vec![&env, id.into_val(&env)],
+                sub_invokes: &[],
+            },
+        }])
+        .mark_executed(&id);
+
+    assert_eq!(client.proposal(&id).status, ProposalStatus::Executed);
+}
+
+// A NON-executor caller is rejected because mark_executed require_auths the STORED executor
+// (`agent`), and only a different address (`rogue`) is authorized — the executor's require_auth
+// is unsatisfied, so the host rejects the call.
+#[test]
+#[should_panic] // host auth failure: the configured executor `agent` did not authorize the call
+fn mark_executed_rejects_non_executor() {
+    let (env, client, admin, usdc) = setup();
+    let id = vote_scenario(&env, &client, &admin, &usdc, 3, 0, 2_000);
+    set_time(&env, 2_001);
+    client.close(&id);
+    assert_eq!(client.is_approved(&id), true);
+
+    let agent = Address::generate(&env);
+    let rogue = Address::generate(&env);
+    client.set_executor(&agent);
+
+    // Authorize ONLY `rogue` — NOT the configured executor `agent`. mark_executed require_auths
+    // `agent`, which is unsatisfied here, so the host auth check must reject this call.
+    client
+        .mock_auths(&[MockAuth {
+            address: &rogue,
+            invoke: &MockAuthInvoke {
+                contract: &client.address,
+                fn_name: "mark_executed",
+                args: sdk_vec![&env, id.into_val(&env)],
+                sub_invokes: &[],
+            },
+        }])
+        .mark_executed(&id);
 }

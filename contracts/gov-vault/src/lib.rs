@@ -241,14 +241,29 @@ impl GovVault {
         }
     }
 
+    /// Configure the authorized executor (the AgentPolicy smart-account wallet address) permitted to
+    /// call `mark_executed`. Admin-auth (`admin.require_auth()`). Stored at `DataKey::Executor`.
+    /// Idempotent (admin may re-point it). Set after AgentPolicy is deployed (M2 wires this into the
+    /// deploy/config flow). This is the "configured AgentPolicy address" referenced by the
+    /// `mark_executed` auth gate (foundation §2.2). Task M2-0c.
+    pub fn set_executor(env: Env, executor: Address) -> Result<(), GovError> {
+        let admin = storage::get_admin(&env);
+        admin.require_auth();
+        storage::set_executor(&env, &executor);
+        Ok(())
+    }
+
     /// Single-shot replay guard. Requires status==Approved & not executed. Sets status -> Executed.
-    /// M1: callable by anyone (NO auth). The foundation §2.2 auth tightening — `require_auth` on the
-    /// configured executor (AgentPolicy address) stored at `DataKey::Executor` — is implemented in M2
-    /// (Task M2-0c: `set_executor` + the `require_auth` gate + a non-executor-rejected negative test).
-    /// M1 does NOT leave this open by oversight; M2 OWNS the gate (recorded handoff).
+    /// AUTH (foundation §2.2, NEW in M2 / Task M2-0c): ONLY the configured executor (the AgentPolicy
+    /// address stored at `DataKey::Executor` via `set_executor`) may call this — `mark_executed`
+    /// reads `DataKey::Executor` and `require_auth`s it. A non-executor caller is rejected by the host
+    /// auth check (the executor's `require_auth` is unsatisfied), NOT by a GovError. The Executor in
+    /// the hero-loop integration (M2-6) is the AgentPolicy smart-account wallet.
     /// CARRY-FORWARD: returns Result<(), GovError> (NOT panic_with_error!) so the charter's
-    /// try_mark_executed() == Err(Ok(GovError::X)) negatives hold.
+    /// try_mark_executed() == Err(Ok(GovError::X)) business-rule negatives hold.
     pub fn mark_executed(env: Env, id: u32) -> Result<(), GovError> {
+        // The foundation §2.2 auth gate: only the configured AgentPolicy executor may mark.
+        storage::get_executor(&env).require_auth();
         let mut rec = storage::get_proposal(&env, id);
         if rec.executed || rec.status == ProposalStatus::Executed {
             return Err(GovError::AlreadyExecuted);

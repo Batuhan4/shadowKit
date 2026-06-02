@@ -66,6 +66,17 @@ pub fn get_quorum_cfg(env: &Env) -> QuorumCfg {
     env.storage().instance().get(&DataKey::QuorumCfg)
         .unwrap_or_else(|| panic_with_error!(env, GovError::NotInitialized))
 }
+/// Store the configured executor (the AgentPolicy address) authorized to call `mark_executed`
+/// (foundation §2.2). Kept at `DataKey::Executor` (instance). Set via `GovVault::set_executor`.
+pub fn set_executor(env: &Env, executor: &Address) {
+    env.storage().instance().set(&DataKey::Executor, executor);
+}
+/// Read the configured executor. Panics `NotInitialized` if `set_executor` was never called
+/// (mark_executed cannot enforce its auth gate without a configured executor).
+pub fn get_executor(env: &Env) -> Address {
+    env.storage().instance().get(&DataKey::Executor)
+        .unwrap_or_else(|| panic_with_error!(env, GovError::NotInitialized))
+}
 pub fn set_vote_weights(env: &Env, m: &Map<Address, i128>) {
     env.storage().instance().set(&DataKey::VoteWeights, m);
 }
