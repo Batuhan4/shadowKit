@@ -10,7 +10,7 @@
   ],
   "scripts": {
     "test": "vitest run",
-    "build": "tsc --noEmit -p packages/shared/tsconfig.json && tsc --noEmit -p packages/zk-prover/tsconfig.json && tsc --noEmit -p packages/snapshot-tool/tsconfig.json && tsc --noEmit -p packages/tally-reveal/tsconfig.json && tsc --noEmit -p agent/tsconfig.json && tsc --noEmit -p x402-services/premium-data/tsconfig.json && tsc --noEmit -p x402-services/shadowkit-api/tsconfig.json"
+    "build": "tsc --noEmit -p packages/shared/tsconfig.json && tsc --noEmit -p packages/zk-prover/tsconfig.json && tsc --noEmit -p packages/snapshot-tool/tsconfig.json && tsc --noEmit -p packages/tally-reveal/tsconfig.json && tsc --noEmit -p agent/tsconfig.json && tsc --noEmit -p x402-services/shared-x402/tsconfig.json && tsc --noEmit -p x402-services/premium-data/tsconfig.json && tsc --noEmit -p x402-services/shadowkit-api/tsconfig.json"
   },
   "devDependencies": {
     "typescript": "5.7.3",

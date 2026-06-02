@@ -1,0 +1,25 @@
+{
+  "name": "@shadowkit/x402-shared",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./payerFetch": "./src/payerFetch.ts",
+    "./fixtures": "./src/fixtures.ts"
+  },
+  "scripts": { "test": "vitest run" },
+  "dependencies": {
+    "@x402/express": "2.14.0",
+    "@x402/stellar": "2.14.0",
+    "@x402/core": "2.14.0",
+    "@x402/fetch": "2.14.0",
+    "@stellar/stellar-sdk": "^14.6.1",
+    "express": "5.2.1"
+  },
+  "devDependencies": {
+    "vitest": "4.1.7",
+    "@types/express": "5.0.0"
+  }
+}
