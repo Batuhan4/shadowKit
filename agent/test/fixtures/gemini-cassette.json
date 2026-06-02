@@ -1,23 +1,27 @@
 {
-  "capturedAt": "2026-06-02T22:09:51.763Z",
+  "capturedAt": "2026-06-02T22:33:33.704Z",
   "model": "gemini-3.1-flash-lite",
   "textDeltas": [
-    "{\"amountIn\": \"150000000000\", \"minOut\": \"1231312500000\", \"reasoning\": \"The 'buy",
-    "' signal and current price of 8.25 justified deploying the full authorized cap. amountIn is set to the cap, and minOut is set 0.5% below the price-implied output to account for minor sli",
-    "ppage while remaining well above the proposal's minimum floor.\"}"
+    "{\n  \"amountIn",
+    "\": \"150000000000\",\n  \"minOut\": \"12",
+    "35625000000\",\n  \"reasoning\": \"Given the strong buy signal,",
+    " I am deploying the full authorized cap of 150000000000 units. Based",
+    " on the price of 8.25, the expected output is 1237500000",
+    "000. I have set a minOut of 1235625000000,",
+    " representing a 0.15% slippage allowance, which is well above the required floor of 100",
+    "0000000.\"\n}"
   ],
-  "finalText": "{\"amountIn\": \"150000000000\", \"minOut\": \"1231312500000\", \"reasoning\": \"The 'buy' signal and current price of 8.25 justified deploying the full authorized cap. amountIn is set to the cap, and minOut is set 0.5% below the price-implied output to account for minor slippage while remaining well above the proposal's minimum floor.\"}",
+  "finalText": "{\n  \"amountIn\": \"150000000000\",\n  \"minOut\": \"1235625000000\",\n  \"reasoning\": \"Given the strong buy signal, I am deploying the full authorized cap of 150000000000 units. Based on the price of 8.25, the expected output is 1237500000000. I have set a minOut of 1235625000000, representing a 0.15% slippage allowance, which is well above the required floor of 1000000000.\"\n}",
   "usage": {
     "promptTokenCount": 4630,
-    "candidatesTokenCount": 106,
-    "totalTokenCount": 5634,
+    "candidatesTokenCount": 164,
+    "totalTokenCount": 4794,
     "promptTokensDetails": [
       {
         "modality": "TEXT",
         "tokenCount": 4630
       }
     ],
-    "thoughtsTokenCount": 898,
     "serviceTier": "standard"
   }
 }

@@ -54,7 +54,7 @@ describe("gemini-cassette.json is a REAL capture (no fabrication)", () => {
   it("has a real capturedAt, model, and usage block (not a placeholder)", () => {
     expect(typeof cassette.capturedAt).toBe("string");
     expect(cassette.capturedAt).not.toBe("2026-06-02T00:00:00.000Z"); // the forbidden placeholder sentinel
-    expect(cassette.model).toMatch(/^gemini-2\.5-flash/);
+    expect(cassette.model).toMatch(/^gemini-3\.1-flash-lite/);
     expect(cassette.usage).toBeTruthy();
     expect(
       (cassette.usage.promptTokenCount ?? 0) + (cassette.usage.candidatesTokenCount ?? 0),
