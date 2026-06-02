@@ -3,6 +3,9 @@ import type { Groth16Proof, PublicSignals, SealedVoteCiphertext } from "@shadowk
 import { poseidonHashBls } from "./poseidon.js";
 import { timelockSealVote, type DrandConfig } from "./seal.js";
 export type { DrandConfig } from "./seal.js";
+// M5 re-exports so consumers (e.g. @shadowkit/tally-reveal) can import the seal/round helpers.
+export { timelockSealVote, timelockUnsealVote, roundForDeadline } from "./seal.js";
+export { DEFAULT_DRAND } from "./drandConfig.js";
 
 export interface VoteInput {
   secret: string; merklePath: string[]; pathIndices: number[];
@@ -55,10 +58,12 @@ export async function generateVoteProof(
   };
   // Strip the circuit-only `sealKey` from the returned ciphertext envelope (it is a private input,
   // never stored on-chain). `sealedCiphertext` is exactly the foundation §3.1 SealedVoteCiphertext.
+  // A4 BINDING: stamp the commitment hash from the PROOF's 4th public signal so the on-chain
+  // SealedVote.sealed_commitment_hash == pub_signals[3] exactly (same value, same representation).
   const sealedCiphertext: SealedVoteCiphertext = {
     round: sealed.round,
     ciphertext: sealed.ciphertext,
-    sealedCommitmentHash: sealed.sealedCommitmentHash,
+    sealedCommitmentHash: signals.sealedCommitmentHash,
   };
   return { proof: proof as Groth16Proof, publicSignals: signals, sealedCiphertext };
 }

@@ -79,3 +79,38 @@ describe("timelockSealVote / timelockUnsealVote (REAL tlock-js)", () => {
     await expect(timelockUnsealVote(sealed)).rejects.toThrow(/too early/i);
   }, 60_000);
 });
+
+import { generateVoteProof } from "../src/index.js";
+import { resolve } from "node:path";
+import { readFileSync } from "node:fs";
+
+describe("generateVoteProof binds sealedCiphertext.sealedCommitmentHash to publicSignals[3]", () => {
+  it("seals and stamps the commitment hash from the proof", async () => {
+    // Reuse the committed M4 sample input (valid witness) from the prover artifacts dir.
+    const ART = resolve(__dirname, "../artifacts");
+    const wasmPath = resolve(ART, "vote.wasm");
+    const zkeyPath = resolve(ART, "vote_final.zkey");
+    // Rebuild the same single-voter input the committed fixture uses (depth 20, voter at index 0).
+    const { poseidonHashBls } = await import("../src/poseidon.js");
+    const DEPTH = 20, secret = "12345", weight = "1000", proposalId = "0", direction = 1 as const;
+    const secretCommit = await poseidonHashBls([secret]);
+    const leaf = await poseidonHashBls([secretCommit, weight]);
+    const zero = ["0"]; for (let i = 1; i <= DEPTH; i++) zero.push(await poseidonHashBls([zero[i - 1]!, zero[i - 1]!]));
+    const merklePath: string[] = [], pathIndices: number[] = [];
+    let cur = leaf; for (let i = 0; i < DEPTH; i++) { merklePath.push(zero[i]!); pathIndices.push(0); cur = await poseidonHashBls([cur, zero[i]!]); }
+    void readFileSync;
+
+    const res = await generateVoteProof(
+      { secret, merklePath, pathIndices, weight, proposalId, direction, merkleRoot: cur },
+      { wasmPath, zkeyPath },
+      1692803367 + 5 * 3, // past deadline -> decryptable for the assertion below
+    );
+    // BINDING: ciphertext commitment hash == proof's 4th public signal.
+    expect(res.sealedCiphertext.sealedCommitmentHash).toBe(res.publicSignals.sealedCommitmentHash);
+    expect(res.sealedCiphertext.round).toBeGreaterThan(0);
+    // and it actually decrypts to the same direction/weight we sealed
+    const opened = await timelockUnsealVote(res.sealedCiphertext);
+    expect(opened.direction).toBe(direction);
+    expect(opened.weight).toBe(weight);
+  }, 90_000);
+});
