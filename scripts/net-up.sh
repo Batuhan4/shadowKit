@@ -8,10 +8,8 @@ echo "[net-up] starting local Stellar quickstart container..."
 stellar container start local
 
 echo "[net-up] registering 'local' network with the CLI..."
-stellar network add local \
-  --rpc-url "http://localhost:8000/rpc" \
-  --network-passphrase "Standalone Network ; February 2017" \
-  --overwrite || \
+# stellar 26.1.0: `network add` has no --overwrite flag and is idempotent (re-add of an
+# existing name exits 0), so a single add is correct and safe across net-down/net-up cycles.
 stellar network add local \
   --rpc-url "http://localhost:8000/rpc" \
   --network-passphrase "Standalone Network ; February 2017"
