@@ -36,7 +36,11 @@ web-build:
 # the umbrella target. `test-ts` (npx vitest run) already runs agent/test + web/test, so test-agent is
 # the explicitly-named M2 subset; we keep both for discoverability without double-running the whole
 # suite (test depends on test-ts which is the superset; test-policy-handrolled adds the fallback cfg).
-test: test-contracts test-policy-handrolled test-ts circuit-test
+# M6 folds in the x402 service suites (test-x402) + the M6 fallback/config-selectable suites
+# (test-fallbacks-m6: soroswap-feature swap-venue build + x402 onedir fallbacks). `test-ts` already
+# covers the agent dataClient + swapVenueSelect suites (npx vitest run = all TS projects), but the
+# soroswap-feature cargo build is NOT in `cargo test --workspace`, so test-fallbacks-m6 adds it.
+test: test-contracts test-policy-handrolled test-ts circuit-test test-x402 test-fallbacks-m6
 
 test-contracts:
     cargo test --workspace
@@ -90,6 +94,25 @@ web-test:
 # CLIENT), export those env vars (e.g. via `set -a; . ./.env.x402; set +a`), then re-run `just test-x402`.
 test-x402:
     npx vitest run --project @shadowkit/x402-shared --project @shadowkit/x402-premium-data --project @shadowkit/x402-api
+
+# ---- M6 FALLBACK / config-selectable suites (charter rule 3: fallbacks must be tested too) ----
+# The PRIMARY M6 paths run under `just test`'s `test-ts` (agent dataClient REAL x402 + swapVenueSelect)
+# and `test-x402` (the x402 service suites). These are the M6 FALLBACK builds that aren't otherwise
+# covered by the default chain:
+#  - x402 onedir fallback   : X402_DIRECTION=agent-pays-only — the SELL side (shadowkit-api) runs UNGATED
+#                             while premium-data (agent-pays) STAYS paywalled. Needs NO funded accounts
+#                             (both onedir suites mint a random facilitator signer).
+#  - swap-venue soroswap    : the Soroswap adapter feature build (calls the live router signature) — NOT
+#                             in `cargo test --workspace`, so it is run explicitly here.
+#  - agent SWAP_VENUE switch : the fallback|soroswap config selector (pure id selector, foundation §2.4).
+# NOTE (deferred to the passkey/web batch — NOT this batch): the M6 plan also lists
+# `WALLET_MODE=keypair npx vitest run web/test/passkey.test.ts` here. That web/passkey suite is Task 7
+# (passkey/WebAuthn), owned by a separate batch; it is intentionally omitted until that file exists so
+# `just test` stays green. Re-add the keypair-fallback line when Task 7 lands web/test/passkey.test.ts.
+test-fallbacks-m6:
+    X402_DIRECTION=agent-pays-only npx vitest run x402-services/shadowkit-api/test/onedir.test.ts x402-services/premium-data/test/onedir.test.ts
+    cargo test -p swap-venue --features soroswap soroswap_adapter
+    npx vitest run agent/test/swapVenueSelect.test.ts
 
 # Run the agent-pays premium-data service on $PREMIUM_DATA_PORT (default 4100). Needs
 # RESOURCE_SERVER_ADDRESS + X402_FACILITATOR_URL in the env (foundation §3.6a).
