@@ -44,13 +44,9 @@ export interface AgentDeps {
 
 export class AgentRunner {
   private bus = new LogBus();
-  private planner: Planner;
   private deps: AgentDeps;
   constructor(private cfg: AgentConfig, deps?: AgentDeps) {
     this.deps = deps ?? this.realDeps();
-    this.planner = cfg.useDeterministicPlanner
-      ? this.deps.makeDeterministicPlanner()
-      : this.deps.makeClaudePlanner(this.bus);
   }
 
   /** Default deps wire the REAL modules (Watcher, Executor+StellarChainGateway, DataClient, GovReader). */
@@ -122,8 +118,7 @@ export class AgentRunner {
       const market = await this.deps.dataClient.fetchMarket("USDC/XLM");
       const actionSpec = await this.deps.govReader.actionOf(proposalId);
       const cap = await this.deps.govReader.capOf(proposalId);
-      log("plan", "planning swap (deterministic)");
-      const plan = await this.planner.plan(actionSpec, cap, market);
+      const plan = await this.selectAndPlan(actionSpec, cap, market, log);
       if (BigInt(plan.amountIn) > BigInt(cap)) throw new Error(`cap guard: ${plan.amountIn} > ${cap}`);
       log("sign", `signing swap amountIn=${plan.amountIn} minOut=${plan.minOut}`);
       // Executor handles idempotency (isExecuted short-circuit) + client cap guard + submit + mark.
@@ -136,6 +131,32 @@ export class AgentRunner {
       throw err;
     } finally {
       off();
+    }
+  }
+
+  /** Planner selection + AUTO-FALLBACK. Config (`useDeterministicPlanner`) selects the planner; on
+   *  any GeminiPlanner failure (LLM down / network error / invalid plan caught by validatePlan
+   *  inside the planner), logs phase:"error" and falls back to the deterministic planner. The
+   *  chosen planner's output is already in-cap (GeminiPlanner re-validates internally;
+   *  DeterministicPlanner is in-cap by construction). Returns exactly one plan; the executor is
+   *  still called exactly once by run(), preserving single-shot idempotency. */
+  private async selectAndPlan(
+    spec: ActionSpec,
+    cap: string,
+    market: MarketData,
+    log: (phase: AgentLog["phase"], message: string, txHash?: string) => void,
+  ): Promise<ActionPlan> {
+    if (this.cfg.useDeterministicPlanner) {
+      log("plan", "planning swap (deterministic, config)");
+      return this.deps.makeDeterministicPlanner().plan(spec, cap, market);
+    }
+    try {
+      log("plan", "planning swap (Gemini)");
+      return await this.deps.makeClaudePlanner(this.bus).plan(spec, cap, market);
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      log("error", `Gemini planner failed (${reason}); fallback to deterministic planner.`);
+      return this.deps.makeDeterministicPlanner().plan(spec, cap, market);
     }
   }
 }
