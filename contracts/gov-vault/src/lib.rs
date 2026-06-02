@@ -208,4 +208,32 @@ impl GovVault {
         ProposalClosed { id, approved, weighted_yes: yes, weighted_no: no }.publish(&env);
         Ok(())
     }
+
+    /// True iff status == Approved (read by AgentPolicy in M2). View; no auth.
+    /// Returns false for an absent proposal (it is, trivially, not approved).
+    pub fn is_approved(env: Env, id: u32) -> bool {
+        match storage::try_get_proposal(&env, id) {
+            Some(rec) => rec.status == ProposalStatus::Approved,
+            None => false,
+        }
+    }
+
+    /// Approved-proposal spending cap (read by AgentPolicy). ProposalNotFound if absent.
+    /// CARRY-FORWARD: returns Result<i128, GovError> (NOT panic_with_error!) so the charter's
+    /// try_cap_of() == Err(Ok(GovError::ProposalNotFound)) negative holds.
+    pub fn cap_of(env: Env, id: u32) -> Result<i128, GovError> {
+        match storage::try_get_proposal(&env, id) {
+            Some(rec) => Ok(rec.cap),
+            None => Err(GovError::ProposalNotFound),
+        }
+    }
+
+    /// The approved ActionSpec (read by AgentPolicy). ProposalNotFound if absent.
+    /// CARRY-FORWARD: returns Result<ActionSpec, GovError> (NOT panic_with_error!).
+    pub fn action_of(env: Env, id: u32) -> Result<ActionSpec, GovError> {
+        match storage::try_get_proposal(&env, id) {
+            Some(rec) => Ok(rec.action_spec),
+            None => Err(GovError::ProposalNotFound),
+        }
+    }
 }

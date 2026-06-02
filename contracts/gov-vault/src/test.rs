@@ -446,3 +446,50 @@ fn test_close_emits_proposalclosed_event_approved() {
     let last = xdr_events.last().unwrap().clone();
     assert_eq!(last, closed.to_xdr(&env, &contract_id));
 }
+
+// ============================================================================
+// Task 9B — read accessors is_approved / cap_of / action_of (+ ProposalNotFound negatives)
+// ============================================================================
+
+#[test]
+fn test_is_approved_reflects_status() {
+    let (env, client, admin, usdc) = setup();
+    let approved_id = vote_scenario(&env, &client, &admin, &usdc, 3, 0, 2_000);
+    set_time(&env, 2_001);
+    client.close(&approved_id);
+    assert_eq!(client.is_approved(&approved_id), true);
+}
+
+#[test]
+fn test_is_approved_false_for_rejected() {
+    let (env, client, admin, usdc) = setup();
+    let id = vote_scenario(&env, &client, &admin, &usdc, 2, 0, 2_000); // <3 voters -> Rejected
+    set_time(&env, 2_001);
+    client.close(&id);
+    assert_eq!(client.is_approved(&id), false);
+}
+
+#[test]
+fn test_cap_of_and_action_of_return_stored_values() {
+    let (env, client, admin, usdc) = setup();
+    init_default(&env, &client, &admin, &usdc);
+    // give the proposal a future deadline relative to default ledger time (0)
+    let spec = sample_spec(&env);
+    let id = client.create_proposal(&spec, &15_000i128, &2_000_000_000u64);
+    assert_eq!(client.cap_of(&id), 15_000);
+    assert_eq!(client.action_of(&id), spec);
+}
+
+#[test]
+fn test_cap_of_not_found_panics() {
+    let (env, client, admin, usdc) = setup();
+    init_default(&env, &client, &admin, &usdc);
+    assert_eq!(client.try_cap_of(&123u32), Err(Ok(GovError::ProposalNotFound)));
+}
+
+#[test]
+fn test_action_of_not_found_panics() {
+    let (env, client, admin, usdc) = setup();
+    init_default(&env, &client, &admin, &usdc);
+    assert_eq!(client.try_action_of(&123u32), Err(Ok(GovError::ProposalNotFound)));
+}
