@@ -16,7 +16,6 @@ pub fn reaggregate(
     revealed_no_w: i128,
 ) -> (i128, i128) {
     // C5a: (1) length match — one decryption per stored sealed vote (foundation §2.2).
-    let _ = (revealed_yes_w, revealed_no_w); // consumed by the aggregate guard in C5d
     if decryptions.len() != sealed.len() {
         panic_with_error!(env, GovError::RevealMismatch);
     }
@@ -35,6 +34,10 @@ pub fn reaggregate(
             0 => no += d.weight,
             _ => panic_with_error!(env, GovError::RevealMismatch),
         }
+    }
+    // C5d: (4) the recomputed sums MUST equal the claimed aggregates (no lying to flip quorum).
+    if yes != revealed_yes_w || no != revealed_no_w {
+        panic_with_error!(env, GovError::RevealMismatch);
     }
     (yes, no)
 }

@@ -511,6 +511,21 @@ fn reveal_bad_direction_rejected() {
     assert_eq!(r, Err(Ok(GovError::RevealMismatch)));
 }
 
+#[test]
+fn reveal_lying_aggregate_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (gov, _v) = deploy_with_committed_root(&env);
+    let (id, h0, h1, h2) = setup_revealable(&env, &gov);
+    // real sums: yes=200, no=50; attacker CLAIMS yes=999 to flip quorum
+    let decs = soroban_sdk::vec![&env,
+        VoteDecryption { direction: 1, weight: 100, sealed_commitment_hash: h0 },
+        VoteDecryption { direction: 1, weight: 100, sealed_commitment_hash: h1 },
+        VoteDecryption { direction: 0, weight: 50,  sealed_commitment_hash: h2 }];
+    let r = gov.try_close_and_reveal(&id, &999i128, &50i128, &decs);
+    assert_eq!(r, Err(Ok(GovError::RevealMismatch)));
+}
+
 // ============================================================================
 // Structural tests (carried from M1, migrated to the foundation init signature)
 // ============================================================================
