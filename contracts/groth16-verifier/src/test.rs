@@ -117,3 +117,44 @@ fn embedded_vk_accepts_committed_proof() {
     // `verify` loads the EMBEDDED vk (vk.rs) — must accept the same committed proof.
     assert_eq!(c.verify(&load_proof(&env), &load_public(&env)), true);
 }
+
+#[test]
+fn tampered_proof_verifies_false() {
+    let env = Env::default();
+    let c = client(&env);
+    let mut p = load_proof(&env);
+    // Flip pi_c to alpha-of-vk (a valid but wrong G1 point) -> pairing check fails -> false.
+    p.c = load_vk(&env).alpha;
+    assert_eq!(c.verify(&p, &load_public(&env)), false);
+}
+
+#[test]
+fn wrong_public_input_verifies_false() {
+    let env = Env::default();
+    let c = client(&env);
+    let mut pubs = load_public(&env);
+    // Replace nullifier (index 0 in public.json native order) with a different field element.
+    pubs.set(0, fr(&env, "42"));
+    assert_eq!(c.verify(&load_proof(&env), &pubs), false);
+}
+
+#[test]
+fn malformed_vk_returns_error_no_panic() {
+    let env = Env::default();
+    let c = client(&env);
+    // pub_signals length mismatch vs vk.ic -> verify_proof returns Err(MalformedVerifyingKey).
+    let mut short = load_public(&env);
+    short.pop_back(); // now len mismatches vk.ic
+    let res = c.try_verify_proof(&load_vk(&env), &load_proof(&env), &short);
+    assert_eq!(res, Err(Ok(crate::Groth16Error::MalformedVerifyingKey)));
+}
+
+#[test]
+fn verify_with_malformed_returns_false_not_panic() {
+    let env = Env::default();
+    let c = client(&env);
+    // The convenience `verify` maps any error to false (never panics).
+    let mut short = load_public(&env);
+    short.pop_back();
+    assert_eq!(c.verify(&load_proof(&env), &short), false);
+}
