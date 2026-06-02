@@ -1,0 +1,70 @@
+# justfile — orchestrate all ShadowKit layers (foundation §1, §7.2)
+# Verified `just` syntax via ctx7 /casey/just (2026-06-02).
+
+# Load .env into every recipe's environment so the deployer identity (and other config) has a
+# SINGLE source of truth shared by scripts/deploy-local.sh and the e2e invoke below.
+set dotenv-load := true
+
+# default: list recipes
+default:
+    @just --list
+
+# ---- local network ----
+net-up:
+    ./scripts/net-up.sh
+
+net-down:
+    ./scripts/net-down.sh
+
+# ---- build (contracts wasm + TS typecheck + web rendered page) ----
+build: build-contracts build-ts web-build
+
+build-contracts:
+    stellar contract build
+
+# NOTE: build-ts runs `npm run build`, which typechecks each TS package with `tsc --noEmit -p <pkg>`
+# (see root package.json, Task 5.1). It is NOT `tsc -b` — there is no root tsconfig/project refs,
+# so `tsc -b` would fail with `error TS5083: Cannot read file 'tsconfig.json'`.
+build-ts:
+    npm run build
+
+web-build:
+    npm run build --workspace web
+
+# ---- test (the single entrypoint — foundation §7.2) ----
+test: test-contracts test-ts circuit-test
+
+test-contracts:
+    cargo test --workspace
+
+# fallback feature paths (foundation §7.2). In M0 these crates are stubs with no such features yet,
+# so the recipe builds them WITHOUT the flags; the flagged variants are added by M2 (handrolled)
+# and M4 (offchain-verify). Kept here as named recipes so later milestones only fill the body.
+test-contracts-fallbacks:
+    @echo "fallback feature suites land in M2 (handrolled) / M4 (offchain-verify)"
+
+test-ts:
+    npx vitest run
+
+web-test:
+    npm run test --workspace web
+
+# circuit-test is a DOCUMENTED no-op until M4 (the circuit is milestone M4 / spec §11). It runs
+# circuits/vote's `test` script which prints an M4-deferral message and exits 0. It asserts nothing
+# and is explicitly whitelisted by the Task 21 no-cheating audit. Drop-in: M4 replaces the script body.
+circuit-test:
+    npm run test --prefix circuits/vote
+
+# ---- deploy (local is default; testnet via the parameterized script) ----
+deploy:
+    STELLAR_NETWORK=local ./scripts/deploy-local.sh
+
+deploy-testnet:
+    STELLAR_NETWORK=testnet ./scripts/deploy-local.sh
+
+# ---- end-to-end (M0: net-up -> deploy -> invoke hello -> assert) ----
+# The invoke uses the SAME identity expansion as scripts/deploy-local.sh — `.env`'s STELLAR_DEPLOYER
+# (loaded via `set dotenv-load`), defaulting to shadowkit-deployer — so deploy and invoke never diverge.
+e2e: net-up
+    STELLAR_NETWORK=local ./scripts/deploy-local.sh
+    stellar contract invoke --id hello_world --source-account "${STELLAR_DEPLOYER:-shadowkit-deployer}" --network local -- hello --to RPC
