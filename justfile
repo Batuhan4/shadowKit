@@ -51,6 +51,12 @@ test-policy-handrolled:
 test-agent:
     npx vitest run agent/test web/test/AgentBoardTerminal.test.tsx
 
+# ---- M3: live Gemini integration test (REAL gemini-2.5-flash call) ----
+# Env-gated; reads GEMINI_API_KEY from .env (loaded above via `set dotenv-load`). Skipped cleanly
+# without RUN_LIVE_LLM=1. Proves the PRIMARY (Gemini) planner returns a valid in-cap plan on its own.
+test-llm-live:
+    RUN_LIVE_LLM=1 npx vitest run agent/test/geminiPlanner.live.test.ts
+
 # fallback feature paths (foundation §7.2). In M0 these crates are stubs with no such features yet,
 # so the recipe builds them WITHOUT the flags; the flagged variants are added by M2 (handrolled)
 # and M4 (offchain-verify). Kept here as named recipes so later milestones only fill the body.

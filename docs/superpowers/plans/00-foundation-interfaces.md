@@ -117,13 +117,13 @@ shadowkit/
 │           └── drand.ts               #   beacon fetch + round↔deadline mapping (drand-client)
 │
 ├── agent/                             # ---- AGENT MIDDLEWARE (TypeScript) ----
-│   ├── package.json                   #   pkg `@shadowkit/agent`; deps: @stellar/stellar-sdk, @anthropic-ai/sdk, x402 client
+│   ├── package.json                   #   pkg `@shadowkit/agent`; deps: @stellar/stellar-sdk, @google/genai (M3 LLM = Gemini), x402 client
 │   └── src/
 │       ├── index.ts                   #   AgentRunner orchestrator (wires the 5 modules)
 │       ├── watcher.ts                 #   Watcher: poll RPC for proposal-closed events → emit trigger
 │       ├── tallyReveal.ts             #   thin wrapper over @shadowkit/tally-reveal for the agent context
 │       ├── dataClient.ts              #   DataClient: x402-pay premium-data endpoint, returns price/signal
-│       ├── planner.ts                 #   Planner: Claude call → ActionPlan (≤ cap), with deterministic fallback
+│       ├── planner.ts                 #   Planner: Gemini call (M3 pivot; GeminiPlanner) → ActionPlan (≤ cap), with deterministic fallback
 │       ├── executor.ts                #   Executor: build+sign (session key) swap tx via AgentPolicy, client cap guard
 │       └── logBus.ts                  #   LogBus: typed AgentLog event emitter (SSE/WebSocket source for terminal)
 │
@@ -971,9 +971,11 @@ Implemented with drand-client's **`roundAt(timeMs, chainInfo)`** (re-exported by
 > M3 (`04-m3-claude-planner.md`) needed three signatures not in the original binding; they are added below
 > and are backward-compatible supersets of the originals (no existing call site breaks):
 > 1. `AgentRunner` gains an **optional** second ctor arg `deps?: AgentDeps` (test-injection seam). Omitting it = the original `constructor(cfg)`.
-> 2. `ClaudePlanner` ctor takes `ClaudePlannerConfig` = the original `{ apiKey; model }` **plus optional** `client?: AnthropicLike` and `logBus?: LogBus`.
-> 3. New supporting interfaces `AgentDeps`, `GovReader`, `AnthropicLike`, `ClaudePlannerConfig` (all in `@shadowkit/agent`). `GovReader` is a thin TS wrapper over the existing GovVault `cap_of`/`action_of` entrypoints (§2.2) — no new contract method is invented.
-> No other milestone plan references `AgentRunner(cfg, deps)` / `ClaudePlannerConfig` today, so there is no downstream ripple beyond M3.
+> 2. The primary LLM planner ctor takes a config = the original `{ apiKey; model }` **plus optional** `client?` (an injectable client seam) and `logBus?: LogBus`.
+> 3. New supporting interfaces `AgentDeps`, `GovReader`, the client seam, and the planner config (all in `@shadowkit/agent`). `GovReader` is a thin TS wrapper over the existing GovVault `cap_of`/`action_of` entrypoints (§2.2) — no new contract method is invented.
+> No other milestone plan references `AgentRunner(cfg, deps)` today, so there is no downstream ripple beyond M3.
+>
+> **M3 GEMINI PIVOT (2026-06-03).** The planner LLM is **Gemini** (`@google/genai`, model `gemini-2.5-flash`), not Claude — a Gemini API key was supplied. As implemented in `agent/src/planner.ts`: the primary planner is **`GeminiPlanner`** (implements `Planner`), its ctor takes **`GeminiPlannerConfig = { apiKey; model; client?: GeminiLike; logBus? }`**, and the injectable client seam is **`GeminiLike`** (`{ models: { generateContentStream(args): Promise<AsyncIterable<{text?}>> } }`). `AgentConfig.anthropicApiKey` → **`geminiApiKey`**. The `AgentDeps` factory field keeps the name `makeClaudePlanner` (semantically "the primary LLM planner factory") to avoid a rename ripple; it now returns a `GeminiPlanner`. Gemini implicit caching is automatic on gemini-2.5-flash, so the Anthropic-specific ≥4096-token frozen-prefix cache engineering is dropped; the system instruction is still a complete bounded-execution policy for quality/determinism. The names `ClaudePlanner`/`ClaudePlannerConfig`/`AnthropicLike` in the box/code below are the superseded Claude originals, retained for historical context.
 
 ```typescript
 // index.ts
@@ -1329,7 +1331,7 @@ component main {public [merkleRoot, proposalId, sealedCommitmentHash]} = Vote(20
 | Payments core | `@x402/core` | **2.14.0** | transitive dep of `@x402/express`/`@x402/stellar`; provides `x402ResourceServer` (`@x402/core/server`), `HTTPFacilitatorClient` (`@x402/core/server`), `x402Facilitator` (`@x402/core/facilitator`), `x402Client` (`@x402/core/client`), `FacilitatorClient`, `RoutesConfig`, scheme types (`@x402/core/types`). |
 | Payments (facilitator HTTP) | `@x402/server` | **2.14.0** | `npm view @x402/server version`. Provides `createFacilitatorRouter(facilitator)` from `@x402/server/facilitator` — the Express router that exposes a built `x402Facilitator` over HTTP (`app.use("/", createFacilitatorRouter(facilitator))`). SOURCE: ctx7 `/coinbase/x402` `e2e/facilitators/typescript/README.md`. |
 | Payments (client fetch) | `@x402/fetch` | **2.14.0** | `npm view @x402/fetch version`. Provides `wrapFetchWithPayment(fetch, client)` (and re-exports `x402Client`). The payer side wraps native `fetch` to auto-pay 402. SOURCE: ctx7 `/coinbase/x402` `examples/typescript/clients/fetch/README.md`. |
-| LLM | `@anthropic-ai/sdk` | **0.100.1** | `npm view @anthropic-ai/sdk version`. Planner model: a fast capable Claude model + prompt caching (spec §13.6). |
+| LLM | `@google/genai` | **2.7.0** | **M3 PIVOT (2026-06-03): the planner LLM is GEMINI, not Claude** (a Gemini key was supplied). `npm view @google/genai versions` (2.7.0 is the latest published before the 2026-05-31 date-gate). Planner model: `gemini-2.5-flash` (`gemini-flash-latest` also works); structured JSON via `config.responseMimeType:"application/json"` + `config.responseSchema` (`Type.OBJECT`); streaming via `ai.models.generateContentStream`; **implicit caching is automatic on gemini-2.5-flash** (no prompt-prefix engineering). The earlier `@anthropic-ai/sdk@0.100.1` Claude plan is superseded for M3. |
 | Stellar SDK | `@stellar/stellar-sdk` | **15.1.0** | `npm view @stellar/stellar-sdk version`. Tx build/sign/submit, contract invocation, RPC. |
 | Frontend | `astro` | **6.4.2** | `npm view astro version`. |
 | Frontend | `@astrojs/react` | **5.0.6** | `npm view @astrojs/react version`. Vite build target `es2020` (tlock-js requirement). |
@@ -1341,7 +1343,7 @@ component main {public [merkleRoot, proposalId, sealedCommitmentHash]} = Vote(20
 | Node | `node` | **26.0.0** | local (`node --version`). pnpm or npm workspaces (default npm). |
 | Network (local) | `stellar` quickstart container | — | `scripts/net-up.sh`; Docker required. M0 sets it up. |
 
-**Versions to PIN exactly in lockfiles** (binding for reproducibility): `soroban-sdk 26.0.0`, `stellar-accounts 0.7.1`, `stellar-contract-utils 0.7.1`, `circom 2.2.1`, `snarkjs 0.7.6`, `circomlib 2.0.5`, `tlock-js 0.9.0`, `smart-account-kit 0.2.10`, `@x402/express 2.14.0`, `@x402/stellar 2.14.0`, `@x402/core 2.14.0`, `@x402/server 2.14.0`, `@x402/fetch 2.14.0`, `@anthropic-ai/sdk 0.100.1`, `@stellar/stellar-sdk 15.1.0`, `astro 6.4.2`, `vitest 4.1.8`. (There is NO `x402-express@2.14.0`; do not pin the unscoped package.)
+**Versions to PIN exactly in lockfiles** (binding for reproducibility): `soroban-sdk 26.0.0`, `stellar-accounts 0.7.1`, `stellar-contract-utils 0.7.1`, `circom 2.2.1`, `snarkjs 0.7.6`, `circomlib 2.0.5`, `tlock-js 0.9.0`, `smart-account-kit 0.2.10`, `@x402/express 2.14.0`, `@x402/stellar 2.14.0`, `@x402/core 2.14.0`, `@x402/server 2.14.0`, `@x402/fetch 2.14.0`, `@google/genai 2.7.0` (M3 LLM = Gemini; supersedes `@anthropic-ai/sdk 0.100.1`), `@stellar/stellar-sdk 15.1.0`, `astro 6.4.2`, `vitest 4.1.8`. (There is NO `x402-express@2.14.0`; do not pin the unscoped package.)
 
 **API VERIFICATION RULE (binding for all plans):** before writing any task that calls an external API, re-verify the current signature via `npx ctx7@latest library "<name>" "<question>"` then `npx ctx7@latest docs "<id>" "<question>"`, or WebFetch/`raw.githubusercontent.com`. Cite the source in a code comment when the call is non-obvious. Do NOT invent function/package/type names. If ctx7 returns a quota error, suggest `npx ctx7@latest login` / `CONTEXT7_API_KEY` and do not silently fall back to memory.
 

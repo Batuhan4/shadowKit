@@ -41,7 +41,7 @@ The demo product, **ShadowDAO**, is a sample DeFi treasury built on ShadowKit.
 | # | Decision | Choice | Notes |
 |---|---|---|---|
 | D1 | ZK verification fidelity | **On-chain Groth16 verify** (BLS12-381) | Off-chain-verify fallback so the demo never breaks. |
-| D2 | Agent autonomy | **LLM-bounded execution** | LLM decides *how* (slippage/route/split/timing) within on-chain-enforced limits. |
+| D2 | Agent autonomy | **LLM-bounded execution** | LLM decides *how* (slippage/route/split/timing) within on-chain-enforced limits. **M3 LLM = Gemini** (`@google/genai`, `gemini-2.5-flash`; pivoted from Claude 2026-06-03); M3 implements sizing + slippage floor (see M3 plan SCOPE DEVIATION). |
 | D3 | x402 scope | **Wide — both directions** | Agent *pays* for premium data; ShadowKit *sells* a paid verify/execute API. |
 | D4 | Stack | **TypeScript everywhere + Rust contracts** | passkey/smart-account-kit & x402 are TS; agent LLM calls first-class in TS. |
 | D5 | Vote weighting | **Token-weighted, weight hidden** | Merged with D6 into one encrypted-tally mechanism. Fallbacks: weight-unlinked → 1p1v. |
