@@ -84,6 +84,33 @@ fn committed_sealed(env: &Env) -> SealedVote {
     }
 }
 
+/// Test scaffolding (M5): write a sealed vote DIRECTLY into storage and bump votes_cast, bypassing
+/// the proof path (separately covered by C1). The commitment hash is filled from a single byte so a
+/// test can build matching `VoteDecryption`s deterministically. Returns the BytesN<32> commitment.
+/// `round` is recorded as the round field (the on-chain reveal does not re-fetch per-vote rounds).
+fn store_sealed(env: &Env, gov: &GovVaultClient, id: u32, byte: u8, round: u64) -> BytesN<32> {
+    use crate::storage::{DataKey, ProposalRecord};
+    let hash = BytesN::from_array(env, &[byte; 32]);
+    let sealed = SealedVote { round, ciphertext: Bytes::from_array(env, b"ct"), sealed_commitment_hash: hash.clone() };
+    env.as_contract(&gov.address, || {
+        let mut votes: soroban_sdk::Vec<SealedVote> =
+            env.storage().persistent().get(&DataKey::SealedVotes(id)).unwrap_or(soroban_sdk::Vec::new(env));
+        votes.push_back(sealed);
+        env.storage().persistent().set(&DataKey::SealedVotes(id), &votes);
+        let mut rec: ProposalRecord = env.storage().persistent().get(&DataKey::Proposal(id)).unwrap();
+        rec.votes_cast += 1;
+        env.storage().persistent().set(&DataKey::Proposal(id), &rec);
+    });
+    hash
+}
+
+/// Store `n` sealed votes directly (distinct commitment bytes), bumping votes_cast each time.
+fn store_n_sealed(env: &Env, gov: &GovVaultClient, id: u32, n: u32) {
+    for k in 0..n {
+        store_sealed(env, gov, id, 0xA0u8.wrapping_add(k as u8), 100 + k as u64);
+    }
+}
+
 // ============================================================================
 // Task 4.19a — init reintroduces verifier + merkle_root (foundation §2.2)
 // ============================================================================
@@ -349,6 +376,24 @@ fn proposal_view_hides_tally_before_close() {
     assert_eq!(pv.weighted_yes, None);
     assert_eq!(pv.weighted_no, None);
     assert_eq!(pv.votes_cast, 1); // participation IS exposed (no direction).
+}
+
+// ============================================================================
+// Task C2 — proposal() exposes NO tally before close, even with several sealed votes
+// ============================================================================
+
+#[test]
+fn proposal_exposes_no_tally_before_close() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (gov, _v) = deploy_with_committed_root(&env);
+    let id = create_default_proposal(&env, &gov);
+    store_n_sealed(&env, &gov, id, 3); // 3 sealed votes stored
+    let view = gov.proposal(&id);
+    assert_eq!(view.votes_cast, 3);        // participation is public
+    assert_eq!(view.weighted_yes, None);   // tally SEALED
+    assert_eq!(view.weighted_no, None);
+    assert_eq!(view.status, ProposalStatus::Open);
 }
 
 // ============================================================================
