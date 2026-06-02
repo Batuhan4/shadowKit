@@ -41,3 +41,11 @@ pub fn reaggregate(
     }
     (yes, no)
 }
+
+#[cfg(feature = "coordinator-reveal")]
+/// D6 FALLBACK: trust the coordinator-asserted aggregate (no on-chain re-aggregation).
+/// SECURITY: relies on a non-colluding coordinator (spec §12, §13.3). Used only when the
+/// `coordinator-reveal` feature is built; the default build uses `reaggregate` (Task C4).
+pub fn coordinator_accept(_env: &Env, revealed_yes_w: i128, revealed_no_w: i128) -> (i128, i128) {
+    (revealed_yes_w, revealed_no_w)
+}

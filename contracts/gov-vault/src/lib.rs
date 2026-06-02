@@ -248,13 +248,23 @@ impl GovVault {
         if env.ledger().timestamp() < rec.deadline {
             return Err(GovError::DeadlineNotReached);
         }
+        // D1 FALLBACK (coordinator-reveal feature): the coordinator MUST be the admin and must auth.
+        // Only under the feature — the default trustless build needs no caller auth at close.
+        #[cfg(feature = "coordinator-reveal")]
+        { storage::get_admin(&env).require_auth(); }
         let sealed: Vec<SealedVote> = env.storage().persistent()
             .get(&storage::DataKey::SealedVotes(id)).unwrap_or(Vec::new(&env));
 
         // PRIMARY path (default build): on-chain re-aggregation of submitted decryptions, binding
         // each VoteDecryption to its stored SealedVote.sealed_commitment_hash and rejecting any
         // aggregate inconsistent with the stored ciphertexts (the four guards live in reveal.rs).
+        #[cfg(not(feature = "coordinator-reveal"))]
         let (yes, no) = reveal::reaggregate(&env, &sealed, &decryptions, revealed_yes_w, revealed_no_w);
+        // D6 FALLBACK path (coordinator-reveal feature): trust the admin-asserted aggregate; NO
+        // per-vote re-aggregation (spec §12, §13.3 non-colluding-coordinator assumption). The sealed
+        // blobs remain stored for participation/auditing; `decryptions` is ignored.
+        #[cfg(feature = "coordinator-reveal")]
+        let (yes, no) = { let _ = &decryptions; reveal::coordinator_accept(&env, revealed_yes_w, revealed_no_w) };
 
         // C6a: full quorum (foundation §5): yes>no (when configured) AND votes_cast >= min_voters.
         let cfg: QuorumCfg = storage::get_quorum_cfg(&env);

@@ -121,6 +121,39 @@ fn create_proposal_with_deadline(env: &Env, gov: &GovVaultClient, deadline: u64)
 /// Advance the ledger clock to `ts`.
 fn advance_to(env: &Env, ts: u64) { set_time(env, ts); }
 
+/// M5 test context (D1/D3/F2): bundles the Env + deployed gov client behind ergonomic methods so the
+/// spec's verbatim `t.create_proposal_with_deadline(..)` / `t.store_sealed(..)` / `t.advance_to(..)` /
+/// `t.client.*` calls compile. Thin wrapper over the existing free helpers above (no new prod code).
+struct TestCtx {
+    env: Env,
+    client: GovVaultClient<'static>,
+}
+
+impl TestCtx {
+    /// Deploy verifier + gov-vault with the committed root + the default strict quorum
+    /// {min_voters:3, yes_must_exceed_no:true} and auto-mock auths.
+    fn new() -> Self {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, _v) = deploy_with_committed_root(&env);
+        TestCtx { env, client }
+    }
+
+    /// Create a proposal whose deadline is exactly `deadline` (sets a near-zero base time first).
+    fn create_proposal_with_deadline(&self, deadline: u64) -> u32 {
+        create_proposal_with_deadline(&self.env, &self.client, deadline)
+    }
+
+    /// Store a sealed vote directly into storage (bypassing the proof path) with a single-byte
+    /// commitment hash; bumps votes_cast. Returns the BytesN<32> commitment.
+    fn store_sealed(&self, id: u32, byte: u8, round: u64) -> BytesN<32> {
+        store_sealed(&self.env, &self.client, id, byte, round)
+    }
+
+    /// Advance the ledger clock to `ts`.
+    fn advance_to(&self, ts: u64) { advance_to(&self.env, ts); }
+}
+
 // ============================================================================
 // Task 4.19a — init reintroduces verifier + merkle_root (foundation §2.2)
 // ============================================================================
@@ -1085,4 +1118,26 @@ mod min_path {
         let res = gov.try_cast_vote_min(&id1, &committed_proof_min(&env), &committed_public_signals_min(&env), &sealed);
         assert_eq!(res, Err(Ok(GovError::WrongProposalId)));
     }
+}
+
+// ============================================================================
+// Task D1 — on-chain coordinator-reveal feature: trust the admin-asserted aggregate (D6 fallback).
+// Compiled ONLY under `--features coordinator-reveal` so the default build is unaffected.
+// ============================================================================
+#[cfg(feature = "coordinator-reveal")]
+#[test]
+fn coordinator_reveal_accepts_admin_asserted_aggregate() {
+    let t = TestCtx::new();
+    let id = t.create_proposal_with_deadline(1000);
+    // coordinator mode: votes were committed off-chain; on-chain we trust the admin/coordinator aggregate.
+    let _h0 = t.store_sealed(id, 0xF1, 100);
+    let _h1 = t.store_sealed(id, 0xF2, 101);
+    let _h2 = t.store_sealed(id, 0xF3, 102);
+    t.advance_to(1001);
+    // NO matching decryptions needed in coordinator mode — empty vec accepted.
+    t.client.close_and_reveal(&id, &700i128, &100i128, &soroban_sdk::vec![&t.env]);
+    let v = t.client.proposal(&id);
+    assert_eq!(v.weighted_yes, Some(700));
+    assert_eq!(v.weighted_no, Some(100));
+    assert_eq!(v.status, ProposalStatus::Approved);
 }
