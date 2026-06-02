@@ -261,3 +261,40 @@ fn test_bad_direction_rejected() {
     assert_eq!(client.votes_cast(&id), 0);
 }
 
+// Task 6 — cast_vote emits a VoteCast event with the correct binding payload
+#[test]
+fn test_cast_vote_emits_votecast_event() {
+    use soroban_sdk::{vec, Event};
+    use soroban_sdk::testutils::Events;
+    let (env, client, admin, usdc) = setup();
+    let contract_id = client.address.clone();
+    let v1 = Address::generate(&env);
+    let cfg = QuorumCfg { min_voters: 3, yes_must_exceed_no: true };
+    let w = weights(&env, &[(v1.clone(), 10)]);
+    env.mock_all_auths();
+    client.init(&admin, &usdc, &cfg, &w);
+    set_time(&env, 1_000);
+    let spec = sample_spec(&env);
+    let id = client.create_proposal(&spec, &15_000i128, &5_000u64);
+    client.cast_vote(&id, &v1, &1u32);
+
+    // The contract derives the event's BytesN<32> id the SAME way the impl does:
+    //   sha256(voter.to_xdr(&env)).to_bytes()  (verified Hash<32>->BytesN<32> via .to_bytes()).
+    let expected_nullifier: soroban_sdk::BytesN<32> =
+        env.crypto().sha256(&v1.clone().to_xdr(&env)).to_bytes();
+    let vote_cast = crate::VoteCast { id, nullifier: expected_nullifier };
+
+    // 26.0.1 API drift (verified): `Events::all()` returns ONLY the events of the LAST contract
+    // invocation (SDK 26.0.1 src/testutils.rs:534 "all contract events ... published by the last
+    // contract invocation"; src/_migrating/v25_event_testing.rs). `create_proposal` and `cast_vote`
+    // are SEPARATE top-level invocations through the generated client, so after the vote the list is
+    // exactly [VoteCast] (NOT the plan's [ProposalCreated, VoteCast]). We use the verified tuple-vec
+    // comparison form (the documented "old comparison style") to assert the VoteCast payload.
+    assert_eq!(
+        env.events().all(),
+        vec![
+            &env,
+            (contract_id.clone(), vote_cast.topics(&env), vote_cast.data(&env)),
+        ]
+    );
+}
