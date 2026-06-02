@@ -88,12 +88,17 @@ export class GeminiPlanner implements Planner {
 
     // Accumulate the structured JSON from the stream chunks. The streamed structured-output run
     // yields the schema JSON across chunk.text deltas; concatenating them reconstructs the verbatim
-    // JSON object (verified against the live model in the recorder/live test).
-    // NOTE: streamed-reasoning -> LogBus emission is added in Task 5 (it has its own failing-first
-    // test). Task 3 only consumes the accumulated structured output below.
+    // JSON object (verified against the live model in the recorder/live test). Each non-empty delta
+    // is also streamed to the terminal as AgentLog{phase:"plan"} via the optional LogBus (empty
+    // deltas are dropped so the terminal stays clean).
     let finalText = "";
     for await (const chunk of stream) {
-      if (typeof chunk.text === "string") finalText += chunk.text;
+      if (typeof chunk.text === "string") {
+        finalText += chunk.text;
+        if (this.logBus && chunk.text) {
+          this.logBus.emit({ ts: Date.now(), phase: "plan", message: chunk.text });
+        }
+      }
     }
 
     let parsed: { amountIn?: unknown; minOut?: unknown; reasoning?: unknown };
