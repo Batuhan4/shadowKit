@@ -31,3 +31,51 @@ describe("drandConfig", () => {
     expect(opts.chainVerificationParams?.publicKey).toBe(DEFAULT_DRAND.publicKey);
   });
 });
+
+import { roundForDeadline } from "../src/seal.js";
+
+describe("roundForDeadline (REAL quicknet round↔deadline)", () => {
+  // quicknet: genesis_time 1692803367 (s), period 3 (s). round 1 == genesis.
+  // round(t) = floor((t - genesis)/period) + 1 ; we assert via the drand-client
+  // round-trip (roundAt then roundTime) against the REAL chain info.
+  it("round-trips a known deadline against real quicknet chain info", async () => {
+    const genesis = 1692803367;
+    const period = 3;
+    // pick a deadline 100 rounds after genesis
+    const deadline = genesis + 100 * period; // exactly the start of round 101
+    const round = await roundForDeadline(deadline);
+    expect(round).toBe(101);
+  }, 30_000);
+
+  it("is monotonic: a later deadline maps to a >= round", async () => {
+    const a = await roundForDeadline(1692803367 + 10 * 3);
+    const b = await roundForDeadline(1692803367 + 20 * 3);
+    expect(b).toBeGreaterThan(a);
+  }, 30_000);
+});
+
+import { timelockSealVote, timelockUnsealVote } from "../src/seal.js";
+
+describe("timelockSealVote / timelockUnsealVote (REAL tlock-js)", () => {
+  it("round-trips (direction,weight) through real tlock against a PAST round", async () => {
+    // PAST deadline -> already-released round -> decryptable now (real beacon).
+    const pastDeadline = 1692803367 + 5 * 3; // round ~6, long released
+    const sealed = await timelockSealVote(1, "4200", pastDeadline);
+    expect(sealed.round).toBeGreaterThan(0);
+    expect(typeof sealed.ciphertext).toBe("string");
+    expect(sealed.ciphertext.length).toBeGreaterThan(0);
+
+    const opened = await timelockUnsealVote(sealed);
+    expect(opened.direction).toBe(1);
+    expect(opened.weight).toBe("4200");
+  }, 60_000);
+
+  it("is UNDECRYPTABLE before its round (real tlock early-decrypt gate)", async () => {
+    // FUTURE deadline -> round not yet reached -> real decrypter throws.
+    const future = Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 365; // +1yr
+    const sealed = await timelockSealVote(0, "7", future);
+    // SOURCE: tlock-js timelock-decrypter.ts throws
+    //   "It's too early to decrypt the ciphertext - decryptable at round N".
+    await expect(timelockUnsealVote(sealed)).rejects.toThrow(/too early/i);
+  }, 60_000);
+});

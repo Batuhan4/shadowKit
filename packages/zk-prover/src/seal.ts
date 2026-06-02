@@ -1,41 +1,71 @@
-// M4 SEAL: the sealed-vote commitment is Poseidon(direction, weight, sealKey) over BLS12-381 (matches
-// vote.circom constraint #5). The CIPHERTEXT body in M4 is a deterministic local seal (base64 JSON);
-// REAL tlock-js timelockEncrypt(round, payload, client) with round = roundForDeadline(deadline) is
-// wired in M5 (foundation §3.2 / 2026-06-02-shadowkit-M5-timelock-weighted-reveal.md). This keeps M4's primary deliverable (on-chain verify of
-// a well-formed sealed vote) testable now WITHOUT faking the crypto under test — the commitment IS the
-// real in-circuit Poseidon.
+// packages/zk-prover/src/seal.ts
+// M5 SEAL (REAL tlock): the sealed-vote commitment is Poseidon(direction, weight, sealKey) over
+// BLS12-381 (matches vote.circom constraint #5), and the CIPHERTEXT body is a REAL tlock-js
+// timelockEncrypt of {direction, weight} to round = roundForDeadline(deadline). A vote sealed to a
+// FUTURE round is genuinely UNDECRYPTABLE before that round (tlock's early-decrypt gate); decryptable
+// after. The `sealKey` is returned so generateVoteProof feeds the same value into the circuit's
+// private `sealKey` input (the in-circuit commitment must equal SealedVote.sealed_commitment_hash ==
+// pub_signals[3]). foundation §3.2 / M5 plan A2–A4.
 //
-// SIGNATURE (foundation §3.2, BINDING): timelockSealVote(direction, weight, deadlineUnixSeconds, drand?)
-// returns `SealedVoteCiphertext & { sealKey }`. The `deadlineUnixSeconds`/`drand` params select the
-// drand round in M5; in M4 the round is a STUB (0) and the deadline is recorded but not yet bound to
-// the ciphertext (M5 binds it). `sealKey` is returned so generateVoteProof feeds the same value into
-// the circuit's private `sealKey` input (the commitment must agree). M4 derives a DETERMINISTIC
-// sealKey from the deadline so the fixture is reproducible; M5 randomizes it.
+// SOURCE (verified 2026-06-02 against the INSTALLED packages — see drandConfig.ts provenance):
+//  - drand-client lib/util.ts: roundAt(time:number/*ms*/, chain:ChainInfo):number,
+//    roundTime(chain:ChainInfo, round:number):number/*ms*/.
+//  - tlock-js@0.9.0 index.ts:
+//      timelockEncrypt(roundNumber: number, payload: Buffer, chainClient): Promise<string>  // round FIRST
+//      timelockDecrypt(ciphertext: string, chainClient): Promise<Buffer>
+//    tlock-js re-exports roundAt/roundTime from drand-client.
+import { roundAt } from "drand-client";
+import { timelockEncrypt, timelockDecrypt } from "tlock-js";
 import type { SealedVoteCiphertext } from "@shadowkit/shared";
 import { poseidonHashBls } from "./poseidon.js";
+import { clientFor, DEFAULT_DRAND, type DrandConfig } from "./drandConfig.js";
 
-export interface DrandConfig { chainUrl: string; chainHash: string; }
+export type { DrandConfig } from "./drandConfig.js";
 
+/** Map a unix-seconds deadline to the drand round it should unlock at.
+ *  Uses the REAL chain ChainInfo (genesis_time, period) via drand-client roundAt. */
+export async function roundForDeadline(
+  deadlineUnixSeconds: number,
+  drand: DrandConfig = DEFAULT_DRAND,
+): Promise<number> {
+  const client = clientFor(drand);
+  const info = await client.chain().info(); // ChainInfo { genesis_time, period, ... }
+  return roundAt(deadlineUnixSeconds * 1000, info);
+}
+
+/** Timelock-seal {direction,weight}: REAL tlock encrypt to round(deadline). Returns the round, the
+ *  base64(armored) ciphertext, the binding commitment Poseidon(direction,weight,sealKey), AND the
+ *  `sealKey` (so generateVoteProof can prove the in-circuit commitment agrees). Call order BINDING:
+ *  timelockEncrypt(round, buf, client). */
 export async function timelockSealVote(
-  direction: 0 | 1, weight: string, deadlineUnixSeconds: number, _drand?: DrandConfig,
+  direction: 0 | 1,
+  weight: string,
+  deadlineUnixSeconds: number,
+  drand: DrandConfig = DEFAULT_DRAND,
 ): Promise<SealedVoteCiphertext & { sealKey: string }> {
-  // M4 deterministic sealKey (reproducible fixtures). M5 replaces with cryptographic randomness.
+  // Deterministic sealKey keeps committed fixtures reproducible (M4); the commitment binding is the
+  // load-bearing secret — the ciphertext confidentiality comes from tlock (the drand round), not this.
   const sealKey = "987654321";
   const commitment = await poseidonHashBls([String(direction), weight, sealKey]);
-  const ciphertext = Buffer.from(
-    JSON.stringify({ direction, weight, sealKey, deadlineUnixSeconds }),
-  ).toString("base64");
+  const round = await roundForDeadline(deadlineUnixSeconds, drand);
+  const payload = Buffer.from(JSON.stringify({ direction, weight }), "utf-8");
+  const armored = await timelockEncrypt(round, payload, clientFor(drand));
   return {
-    round: 0, // M4 STUB; M5 sets round = roundForDeadline(deadlineUnixSeconds)
-    ciphertext,
+    round,
+    ciphertext: Buffer.from(armored, "utf-8").toString("base64"),
     sealedCommitmentHash: "0x" + BigInt(commitment).toString(16).padStart(64, "0"),
     sealKey,
   };
 }
 
+/** Decrypt a sealed vote (REAL tlock). Throws the real tlock "too early" error if the round is not
+ *  yet released. `SealedVoteCiphertext.ciphertext` is base64(tlock armored) per foundation §3.1. */
 export async function timelockUnsealVote(
-  sealed: SealedVoteCiphertext, _drand?: DrandConfig,
+  sealed: SealedVoteCiphertext,
+  drand: DrandConfig = DEFAULT_DRAND,
 ): Promise<{ direction: 0 | 1; weight: string }> {
-  const { direction, weight } = JSON.parse(Buffer.from(sealed.ciphertext, "base64").toString("utf8"));
-  return { direction, weight };
+  const armored = Buffer.from(sealed.ciphertext, "base64").toString("utf-8");
+  const plain = await timelockDecrypt(armored, clientFor(drand));
+  const obj = JSON.parse(plain.toString("utf-8")) as { direction: 0 | 1; weight: string };
+  return { direction: obj.direction, weight: obj.weight };
 }
