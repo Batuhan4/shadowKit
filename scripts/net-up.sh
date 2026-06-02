@@ -5,7 +5,9 @@
 set -euo pipefail
 
 echo "[net-up] starting local Stellar quickstart container..."
-stellar container start local
+# NOTE: stellar 26.1.0 quickstart:testing defaults to protocol 25; soroban-sdk 26.0.0 requires
+# protocol 26. Pass --protocol-version 26 so the container runs the correct protocol.
+stellar container start local --protocol-version 26
 
 echo "[net-up] registering 'local' network with the CLI..."
 # stellar 26.1.0: `network add` has no --overwrite flag and is idempotent (re-add of an

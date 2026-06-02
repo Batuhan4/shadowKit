@@ -27,7 +27,8 @@ fi
 # ---- ensure the deployer identity EXISTS (tolerate "already exists") ----
 # `--fund` only funds at creation; we do robust funding separately below so a pre-existing
 # identity on a freshly-reset network still ends up funded.
-stellar keys generate --global "${DEPLOYER}" --network "${NET}" --fund \
+# NOTE: stellar 26.1.0 removed `--global`; keys are stored in $XDG_CONFIG_HOME/stellar by default.
+stellar keys generate "${DEPLOYER}" --network "${NET}" --fund \
   || echo "[deploy] identity ${DEPLOYER} already exists (continuing)"
 
 # ---- ALWAYS fund the resolved address via friendbot (idempotent; tolerate already-funded) ----
@@ -54,26 +55,36 @@ HELLO_ID=$(stellar contract deploy \
 echo "[deploy] hello_world contract id: ${HELLO_ID}"
 
 # ---- wire SAC tokens (USDC / XLM testnet) ----
-if [ "${NET}" = "local" ]; then
-  echo "[deploy] deploying native (XLM) SAC on local..."
-  XLM_SAC=$(stellar contract asset deploy \
+# Helper: deploy a SAC or resolve its id if already deployed (idempotent).
+# stellar contract asset deploy fails with Error(Storage, ExistingValue) when the SAC already
+# exists (e.g. same network after multiple deploy cycles); fall back to id-only resolution.
+deploy_or_resolve_sac() {
+  local asset="$1"
+  local result
+  result=$(stellar contract asset deploy \
     --source-account "${DEPLOYER}" \
     --network "${NET}" \
-    --asset native)
+    --asset "${asset}" 2>/dev/null) \
+  || result=$(stellar contract id asset \
+    --network "${NET}" \
+    --asset "${asset}" 2>/dev/null)
+  echo "${result}"
+}
+
+if [ "${NET}" = "local" ]; then
+  echo "[deploy] deploying native (XLM) SAC on local..."
+  XLM_SAC=$(deploy_or_resolve_sac "native")
   echo "[deploy] XLM SAC id: ${XLM_SAC}"
 
   echo "[deploy] deploying custom USDC SAC on local (issuer=${DEPLOYER_ADDR})..."
-  USDC_SAC=$(stellar contract asset deploy \
-    --source-account "${DEPLOYER}" \
-    --network "${NET}" \
-    --asset "USDC:${DEPLOYER_ADDR}")
+  USDC_SAC=$(deploy_or_resolve_sac "USDC:${DEPLOYER_ADDR}")
   echo "[deploy] USDC SAC id: ${USDC_SAC}"
 else
   echo "[deploy] testnet: resolving existing SAC ids (native SAC already exists on testnet)..."
+  # NOTE: stellar 26.1.0 removed --source-account from `stellar contract id asset`; only --network needed.
   XLM_SAC=$(stellar contract id asset \
-    --source-account "${DEPLOYER}" \
     --network "${NET}" \
-    --asset native)
+    --asset native 2>/dev/null)
   echo "[deploy] XLM SAC id (resolved): ${XLM_SAC}"
   echo "[deploy] testnet USDC: use the canonical testnet USDC issuer at M6; skipping custom issue here."
 fi
