@@ -1,6 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { fieldToBe32Hex, toScSealedVote } from "./types.js";
-import type { SealedVoteCiphertext } from "./types.js";
+import { fieldToBe32Hex, toScSealedVote, isApproved } from "./types.js";
+import type {
+  SealedVoteCiphertext,
+  ProposalView,
+  ActionSpec,
+  ProposalStatus,
+} from "./types.js";
 
 describe("fieldToBe32Hex", () => {
   it("pads small values to 32 bytes big-endian", () => {
@@ -38,5 +43,44 @@ describe("toScSealedVote (intentionally deferred to M5 — spec §9)", () => {
         "0x0000000000000000000000000000000000000000000000000000000000000001",
     };
     expect(() => toScSealedVote(sample)).toThrow(/implemented in M5/);
+  });
+});
+
+describe("@shadowkit/shared types", () => {
+  it("constructs a ProposalView and helper reads status", () => {
+    const spec: ActionSpec = {
+      kind: "swap",
+      assetIn: "CUSDC",
+      assetOut: "CXLM",
+      amount: "15000",
+      minOut: "14000",
+    };
+    const view: ProposalView = {
+      id: 0,
+      actionSpec: spec,
+      cap: "15000",
+      deadline: 2_000_000_000,
+      votesCast: 3,
+      status: "Approved" as ProposalStatus,
+      weightedYes: "55",
+      weightedNo: "40",
+    };
+    expect(isApproved(view)).toBe(true);
+    expect(view.weightedYes).toBe("55");
+  });
+
+  it("treats open proposals as not approved and tally null", () => {
+    const open: ProposalView = {
+      id: 1,
+      actionSpec: { kind: "swap", assetIn: "A", assetOut: "B", amount: "1", minOut: "1" },
+      cap: "1",
+      deadline: 1,
+      votesCast: 0,
+      status: "Open",
+      weightedYes: null,
+      weightedNo: null,
+    };
+    expect(isApproved(open)).toBe(false);
+    expect(open.weightedYes).toBeNull();
   });
 });

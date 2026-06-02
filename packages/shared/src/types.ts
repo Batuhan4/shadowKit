@@ -21,6 +21,11 @@ export interface ProposalView {
   weightedNo: string | null;
 }
 
+/** Convenience: a proposal is approved iff its status is exactly "Approved". */
+export function isApproved(p: ProposalView): boolean {
+  return p.status === "Approved";
+}
+
 export type AgentLogPhase = "reveal" | "data" | "plan" | "sign" | "submit" | "done" | "error";
 
 export interface AgentLog {
