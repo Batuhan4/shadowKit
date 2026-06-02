@@ -51,3 +51,22 @@ describe("buildRevealArgs (RevealArgs shape + commitment binding + order)", () =
     expect(args.decryptions[1]).toEqual({ direction: 0, weight: "20", sealedCommitmentHash: HASH_B });
   }, 120_000);
 });
+
+const FUTURE_DEADLINE = Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 365; // +1yr, round not released
+
+describe("revealTally pre-deadline reveal fails (REAL tlock early-decrypt gate, spec §10)", () => {
+  it("rejects when a sealed vote's round is not yet released", async () => {
+    const future = await timelockSealVote(1, "100", FUTURE_DEADLINE);
+    // SOURCE: tlock-js timelock-decrypter.ts throws
+    //   "It's too early to decrypt the ciphertext - decryptable at round N".
+    await expect(revealTally([future])).rejects.toThrow(/too early/i);
+  }, 120_000);
+
+  it("rejects a MIXED batch where one vote is future-round (whole reveal fails)", async () => {
+    const released = await seal(1, "10");                       // PAST_DEADLINE -> decryptable
+    const future = await timelockSealVote(0, "20", FUTURE_DEADLINE); // not yet released
+    // a single not-yet-released vote in the set fails the whole reveal (no partial tally leak)
+    await expect(revealTally([released, future])).rejects.toThrow(/too early/i);
+    await expect(buildRevealArgs(7, [released, future])).rejects.toThrow(/too early/i);
+  }, 180_000);
+});
