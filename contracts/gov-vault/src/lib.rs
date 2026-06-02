@@ -263,15 +263,32 @@ impl GovVault {
         revealed_no_w: i128,
         decryptions: Vec<shadowkit_shared::VoteDecryption>,
     ) -> Result<(), GovError> {
-        let _rec = match storage::try_get_proposal(&env, id) {
+        let mut rec = match storage::try_get_proposal(&env, id) {
             Some(r) => r,
             None => return Err(GovError::ProposalNotFound),
         };
         // C3: reject reveal before the deadline.
-        if env.ledger().timestamp() < _rec.deadline {
+        if env.ledger().timestamp() < rec.deadline {
             return Err(GovError::DeadlineNotReached);
         }
-        let _ = (revealed_yes_w, revealed_no_w, &decryptions); // consumed by the C4/C5/C6 body
+        let sealed: Vec<SealedVote> = env.storage().persistent()
+            .get(&storage::DataKey::SealedVotes(id)).unwrap_or(Vec::new(&env));
+
+        // PRIMARY path (default build): on-chain re-aggregation of submitted decryptions, binding
+        // each VoteDecryption to its stored SealedVote.sealed_commitment_hash and rejecting any
+        // aggregate inconsistent with the stored ciphertexts (the four guards live in reveal.rs).
+        let (yes, no) = reveal::reaggregate(&env, &sealed, &decryptions, revealed_yes_w, revealed_no_w);
+
+        // C4 SCOPE quorum (minimal): weighted_yes > weighted_no ONLY. The `votes_cast >= min_voters`
+        // clause + the `yes_must_exceed_no` config term are added red-before-green in C6a.
+        let passed = yes > no;
+
+        rec.weighted_yes = Some(yes);
+        rec.weighted_no = Some(no);
+        rec.status = if passed { ProposalStatus::Approved } else { ProposalStatus::Rejected };
+        storage::set_proposal(&env, id, &rec);
+
+        ProposalClosed { id, approved: passed, weighted_yes: yes, weighted_no: no }.publish(&env);
         Ok(())
     }
 }

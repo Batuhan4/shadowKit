@@ -425,6 +425,35 @@ fn close_and_reveal_before_deadline_rejected() {
 }
 
 // ============================================================================
+// Task C4 — close_and_reveal accepts a CORRECT reveal -> weighted tally + Approved
+// ============================================================================
+
+#[test]
+fn close_and_reveal_correct_sets_weighted_tally_and_approves() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (gov, _v) = deploy_with_committed_root(&env); // default quorum {min_voters:3, yes_must_exceed_no:true}
+    let id = create_proposal_with_deadline(&env, &gov, 1000);
+    let s0 = store_sealed(&env, &gov, id, 0xA1, 100);
+    let s1 = store_sealed(&env, &gov, id, 0xA2, 101);
+    let s2 = store_sealed(&env, &gov, id, 0xA3, 102);
+    advance_to(&env, 1001); // past deadline
+    // decryptions: yes 100 (A1), yes 250 (A2), no 300 (A3) -> yes=350, no=300 -> approved (3 voters)
+    let decs = soroban_sdk::vec![
+        &env,
+        VoteDecryption { direction: 1, weight: 100, sealed_commitment_hash: s0 },
+        VoteDecryption { direction: 1, weight: 250, sealed_commitment_hash: s1 },
+        VoteDecryption { direction: 0, weight: 300, sealed_commitment_hash: s2 },
+    ];
+    gov.close_and_reveal(&id, &350i128, &300i128, &decs);
+    let v = gov.proposal(&id);
+    assert_eq!(v.weighted_yes, Some(350));
+    assert_eq!(v.weighted_no, Some(300));
+    assert_eq!(v.status, ProposalStatus::Approved);
+    assert!(gov.is_approved(&id));
+}
+
+// ============================================================================
 // Structural tests (carried from M1, migrated to the foundation init signature)
 // ============================================================================
 
