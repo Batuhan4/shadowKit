@@ -62,6 +62,33 @@ impl FallbackAMM {
         Ok(())
     }
 
+    /// Deposit liquidity; `from` must auth. Pulls amount_a/amount_b into the pool, updates reserves.
+    pub fn add_liquidity(
+        env: Env,
+        from: Address,
+        amount_a: i128,
+        amount_b: i128,
+    ) -> Result<(), AmmError> {
+        from.require_auth();
+        if amount_a <= 0 || amount_b <= 0 {
+            return Err(AmmError::ZeroAmount);
+        }
+        let asset_a: Address = env
+            .storage()
+            .instance()
+            .get(&AmmKey::AssetA)
+            .ok_or(AmmError::NotInitialized)?;
+        let asset_b: Address = env.storage().instance().get(&AmmKey::AssetB).unwrap();
+        let this = env.current_contract_address();
+        token::Client::new(&env, &asset_a).transfer(&from, &this, &amount_a);
+        token::Client::new(&env, &asset_b).transfer(&from, &this, &amount_b);
+        let ra: i128 = env.storage().instance().get(&AmmKey::ReserveA).unwrap_or(0);
+        let rb: i128 = env.storage().instance().get(&AmmKey::ReserveB).unwrap_or(0);
+        env.storage().instance().set(&AmmKey::ReserveA, &(ra + amount_a));
+        env.storage().instance().set(&AmmKey::ReserveB, &(rb + amount_b));
+        Ok(())
+    }
+
     /// (reserve_a, reserve_b). Implements SwapVenue::reserves.
     pub fn reserves(env: Env) -> (i128, i128) {
         let ra: i128 = env.storage().instance().get(&AmmKey::ReserveA).unwrap_or(0);
