@@ -454,6 +454,33 @@ fn close_and_reveal_correct_sets_weighted_tally_and_approves() {
 }
 
 // ============================================================================
+// Tasks C5a–C5d — close_and_reveal rejects a WRONG reveal (each guard red-before-green)
+// ============================================================================
+
+/// Deploy + 3 stored sealed votes (B1/B2/B3) + ledger past the deadline. Returns (id, h0, h1, h2).
+fn setup_revealable(env: &Env, gov: &GovVaultClient) -> (u32, BytesN<32>, BytesN<32>, BytesN<32>) {
+    let id = create_proposal_with_deadline(env, gov, 1000);
+    let h0 = store_sealed(env, gov, id, 0xB1, 100);
+    let h1 = store_sealed(env, gov, id, 0xB2, 101);
+    let h2 = store_sealed(env, gov, id, 0xB3, 102);
+    advance_to(env, 1001);
+    (id, h0, h1, h2)
+}
+
+#[test]
+fn reveal_wrong_length_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (gov, _v) = deploy_with_committed_root(&env);
+    let (id, h0, h1, _h2) = setup_revealable(&env, &gov);
+    let decs = soroban_sdk::vec![&env,
+        VoteDecryption { direction: 1, weight: 100, sealed_commitment_hash: h0 },
+        VoteDecryption { direction: 0, weight: 50,  sealed_commitment_hash: h1 }]; // only 2 of 3
+    let r = gov.try_close_and_reveal(&id, &100i128, &50i128, &decs);
+    assert_eq!(r, Err(Ok(GovError::RevealMismatch)));
+}
+
+// ============================================================================
 // Structural tests (carried from M1, migrated to the foundation init signature)
 // ============================================================================
 

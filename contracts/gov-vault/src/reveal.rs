@@ -1,24 +1,25 @@
 // contracts/gov-vault/src/reveal.rs
-use soroban_sdk::{Env, Vec};
+use soroban_sdk::{panic_with_error, Env, Vec};
 use shadowkit_shared::{SealedVote, VoteDecryption};
+use crate::GovError;
 
 /// Re-aggregate submitted decryptions against stored sealed votes (foundation §2.2).
 /// Returns (yes_weight, no_weight).
 ///
-/// C3 SCOPE (minimal): sum `weight` by `direction` only. The four integrity guards
-/// (length, per-vote commitment binding, direction-bit, claimed-aggregate match) are added
-/// one-per-cycle in C5a..C5d, each with its own failing test first. Unused params (`sealed`,
-/// `revealed_*`) are wired now so the signature is stable across those cycles; `let _ = ...`
-/// suppresses unused warnings until C5 consumes them. This is NOT a stub of behavior under test
-/// — the guards do not yet exist, so their tests legitimately fail in C5.
+/// Four integrity guards, each introduced red-before-green in C5a..C5d:
+///  C5a length match, C5b per-vote commitment binding, C5c direction-bit, C5d claimed-aggregate match.
 pub fn reaggregate(
-    _env: &Env,
+    env: &Env,
     sealed: &Vec<SealedVote>,
     decryptions: &Vec<VoteDecryption>,
     revealed_yes_w: i128,
     revealed_no_w: i128,
 ) -> (i128, i128) {
-    let _ = (sealed, revealed_yes_w, revealed_no_w); // consumed by guards added in C5a..C5d
+    // C5a: (1) length match — one decryption per stored sealed vote (foundation §2.2).
+    let _ = (revealed_yes_w, revealed_no_w); // consumed by the aggregate guard in C5d
+    if decryptions.len() != sealed.len() {
+        panic_with_error!(env, GovError::RevealMismatch);
+    }
     let mut yes: i128 = 0;
     let mut no: i128 = 0;
     for i in 0..decryptions.len() {
