@@ -50,6 +50,10 @@ pub struct ProposalCreated { #[topic] pub id: u32, pub deadline: u64, pub cap: i
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct VoteCast { #[topic] pub id: u32, pub nullifier: BytesN<32> } // no direction/weight
 
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProposalClosed { #[topic] pub id: u32, pub approved: bool, pub weighted_yes: i128, pub weighted_no: i128 }
+
 #[contractimpl]
 impl GovVault {
     /// Initialize once. `vote_weights` is the M1 plaintext snapshot (voter -> token weight).
@@ -172,6 +176,36 @@ impl GovVault {
         // src/crypto.rs: sha256 -> Hash<32>; Hash::to_bytes -> BytesN<N>).
         let voter_id: BytesN<32> = env.crypto().sha256(&voter.clone().to_xdr(&env)).to_bytes();
         VoteCast { id, nullifier: voter_id }.publish(&env);
+        Ok(())
+    }
+
+    /// Close after deadline: compute plaintext weighted tally from running yes/no weights,
+    /// apply QuorumCfg (yes>no AND votes_cast>=min_voters), set Approved|Rejected. Single close only.
+    /// M1 PLAINTEXT analogue of foundation §2.2 close_and_reveal (no sealed votes / re-aggregation).
+    /// DIVERGENCE (recorded, see task header): M1 transitions Open -> Approved|Rejected atomically and
+    /// never sets ProposalStatus::Tallying (no observable intermediate window in single-shot plaintext
+    /// close). M5's multi-step close_and_reveal is where Tallying becomes observable.
+    /// CARRY-FORWARD: returns Result<(), GovError> (NOT panic_with_error!) so the charter's
+    /// try_close() == Err(Ok(GovError::X)) negatives hold.
+    pub fn close(env: Env, id: u32) -> Result<(), GovError> {
+        let mut rec = storage::get_proposal(&env, id);
+        if rec.weighted_yes.is_some() {
+            return Err(GovError::AlreadyRevealed);
+        }
+        if env.ledger().timestamp() <= rec.deadline {
+            return Err(GovError::DeadlineNotReached);
+        }
+        let yes = storage::get_yes(&env, id);
+        let no = storage::get_no(&env, id);
+        let cfg = storage::get_quorum_cfg(&env);
+        let majority_ok = if cfg.yes_must_exceed_no { yes > no } else { yes >= no };
+        let participation_ok = rec.votes_cast >= cfg.min_voters;
+        let approved = majority_ok && participation_ok;
+        rec.weighted_yes = Some(yes);
+        rec.weighted_no = Some(no);
+        rec.status = if approved { ProposalStatus::Approved } else { ProposalStatus::Rejected };
+        storage::set_proposal(&env, id, &rec);
+        ProposalClosed { id, approved, weighted_yes: yes, weighted_no: no }.publish(&env);
         Ok(())
     }
 }

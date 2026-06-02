@@ -298,3 +298,151 @@ fn test_cast_vote_emits_votecast_event() {
         ]
     );
 }
+
+// ============================================================================
+// Task 9 — close: weighted tally + QuorumCfg + Approved/Rejected + ProposalClosed event
+// ============================================================================
+
+/// Cast `n` yes votes and `m` no votes with distinct eligible voters of weight 10 each.
+fn vote_scenario(env: &Env, client: &GovVaultClient, admin: &Address, usdc: &Address,
+                 yes: u32, no: u32, deadline: u64) -> u32 {
+    let mut entries: soroban_sdk::Vec<Address> = soroban_sdk::Vec::new(env);
+    let mut wmap = Map::new(env);
+    let total = yes + no;
+    for _ in 0..total {
+        let a = Address::generate(env);
+        wmap.set(a.clone(), 10i128);
+        entries.push_back(a);
+    }
+    let cfg = QuorumCfg { min_voters: 3, yes_must_exceed_no: true };
+    env.mock_all_auths();
+    client.init(admin, usdc, &cfg, &wmap);
+    set_time(env, 1_000);
+    let spec = sample_spec(env);
+    let id = client.create_proposal(&spec, &15_000i128, &deadline);
+    for i in 0..yes {
+        client.cast_vote(&id, &entries.get(i).unwrap(), &1u32);
+    }
+    for i in yes..total {
+        client.cast_vote(&id, &entries.get(i).unwrap(), &0u32);
+    }
+    id
+}
+
+#[test]
+fn test_close_quorum_pass_sets_approved() {
+    let (env, client, admin, usdc) = setup();
+    // 3 yes (weight 30), 0 no -> yes>no AND voters(3) >= min_voters(3) -> APPROVED
+    let id = vote_scenario(&env, &client, &admin, &usdc, 3, 0, 2_000);
+    set_time(&env, 2_001); // past deadline
+    client.close(&id);
+    let view = client.proposal(&id);
+    assert_eq!(view.status, ProposalStatus::Approved);
+    assert_eq!(view.weighted_yes, Some(30));
+    assert_eq!(view.weighted_no, Some(0));
+}
+
+#[test]
+fn test_close_quorum_fail_low_participation() {
+    let (env, client, admin, usdc) = setup();
+    // 2 yes only -> votes_cast(2) < min_voters(3) -> REJECTED even though yes>no
+    let id = vote_scenario(&env, &client, &admin, &usdc, 2, 0, 2_000);
+    set_time(&env, 2_001);
+    client.close(&id);
+    let view = client.proposal(&id);
+    assert_eq!(view.status, ProposalStatus::Rejected);
+}
+
+#[test]
+fn test_close_quorum_fail_no_majority() {
+    let (env, client, admin, usdc) = setup();
+    // 1 yes, 2 no -> votes_cast(3) >= 3 but yes(10) !> no(20) -> REJECTED
+    let id = vote_scenario(&env, &client, &admin, &usdc, 1, 2, 2_000);
+    set_time(&env, 2_001);
+    client.close(&id);
+    let view = client.proposal(&id);
+    assert_eq!(view.status, ProposalStatus::Rejected);
+    assert_eq!(view.weighted_yes, Some(10));
+    assert_eq!(view.weighted_no, Some(20));
+}
+
+#[test]
+fn test_close_before_deadline_rejected() {
+    let (env, client, admin, usdc) = setup();
+    let id = vote_scenario(&env, &client, &admin, &usdc, 3, 0, 5_000);
+    set_time(&env, 1_500); // before deadline 5000
+    assert_eq!(client.try_close(&id), Err(Ok(GovError::DeadlineNotReached)));
+}
+
+#[test]
+fn test_close_twice_rejected() {
+    let (env, client, admin, usdc) = setup();
+    let id = vote_scenario(&env, &client, &admin, &usdc, 3, 0, 2_000);
+    set_time(&env, 2_001);
+    client.close(&id);
+    assert_eq!(client.try_close(&id), Err(Ok(GovError::AlreadyRevealed)));
+}
+
+// The agent watcher (foundation §2.2: "ProposalClosed is the event the agent watcher subscribes to")
+// depends on this exact payload. Assert it is emitted with the correct id/approved/weighted_yes/no.
+// 26.0.1 API drift (verified — see Task 6 note): `Events::all()` returns ONLY the events of the LAST
+// contract invocation. `close` is the last invocation here, so the list is exactly [ProposalClosed]
+// (NOT the plan's [ProposalCreated, ProposalClosed]). close with 0 voters -> approved=false (quorum fail).
+#[test]
+fn test_close_emits_proposalclosed_event() {
+    use soroban_sdk::{vec, Event};
+    use soroban_sdk::testutils::Events;
+    let (env, client, admin, usdc) = setup();
+    let contract_id = client.address.clone();
+    let cfg = QuorumCfg { min_voters: 3, yes_must_exceed_no: true };
+    let w = weights(&env, &[]); // no eligible voters
+    env.mock_all_auths();
+    client.init(&admin, &usdc, &cfg, &w);
+    set_time(&env, 1_000);
+    let spec = sample_spec(&env);
+    let id = client.create_proposal(&spec, &15_000i128, &2_000u64);
+    set_time(&env, 2_001);
+    client.close(&id);
+
+    // approved=false (0 voters < min 3), weighted_yes=0, weighted_no=0
+    let closed = crate::ProposalClosed { id, approved: false, weighted_yes: 0i128, weighted_no: 0i128 };
+    assert_eq!(
+        env.events().all(),
+        vec![
+            &env,
+            (contract_id.clone(), closed.topics(&env), closed.data(&env)),
+        ]
+    );
+}
+
+// Approve-path event payload: a passing proposal emits ProposalClosed{approved:true, weighted_yes, weighted_no}.
+#[test]
+fn test_close_emits_proposalclosed_event_approved() {
+    use soroban_sdk::Event;
+    use soroban_sdk::testutils::Events;
+    let (env, client, admin, usdc) = setup();
+    let contract_id = client.address.clone();
+    let v1 = Address::generate(&env);
+    let v2 = Address::generate(&env);
+    let v3 = Address::generate(&env);
+    let w = weights(&env, &[(v1.clone(), 10), (v2.clone(), 10), (v3.clone(), 10)]);
+    let cfg = QuorumCfg { min_voters: 3, yes_must_exceed_no: true };
+    env.mock_all_auths();
+    client.init(&admin, &usdc, &cfg, &w);
+    set_time(&env, 1_000);
+    let spec = sample_spec(&env);
+    let id = client.create_proposal(&spec, &15_000i128, &2_000u64);
+    client.cast_vote(&id, &v1, &1u32);
+    client.cast_vote(&id, &v2, &1u32);
+    client.cast_vote(&id, &v3, &1u32);
+    set_time(&env, 2_001);
+    client.close(&id);
+
+    // The LAST emitted event must be the approved ProposalClosed. We compare it directly by
+    // indexing the XDR slice's last entry against the typed event's to_xdr form.
+    let closed = crate::ProposalClosed { id, approved: true, weighted_yes: 30i128, weighted_no: 0i128 };
+    let all = env.events().all();
+    let xdr_events = all.events(); // &[xdr::ContractEvent], oldest -> newest
+    let last = xdr_events.last().unwrap().clone();
+    assert_eq!(last, closed.to_xdr(&env, &contract_id));
+}
