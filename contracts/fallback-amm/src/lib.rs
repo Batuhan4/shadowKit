@@ -89,6 +89,69 @@ impl FallbackAMM {
         Ok(())
     }
 
+    /// Constant-product swap (x*y=k) with 0.3% fee. Pulls `amount_in` from caller, pushes out to `to`.
+    /// Returns SlippageExceeded if computed out < min_out. Implements SwapVenue::swap.
+    /// Formula (Uniswap v2): in_fee = amount_in*997/1000; out = reserve_out*in_fee/(reserve_in+in_fee).
+    /// Returns `Result<_, AmmError>` (not panic) so try_swap surfaces the typed error to negative tests.
+    pub fn swap(
+        env: Env,
+        asset_in: Address,
+        amount_in: i128,
+        min_out: i128,
+        to: Address,
+    ) -> Result<i128, AmmError> {
+        to.require_auth();
+        if amount_in <= 0 {
+            return Err(AmmError::ZeroAmount);
+        }
+        let asset_a: Address = env
+            .storage()
+            .instance()
+            .get(&AmmKey::AssetA)
+            .ok_or(AmmError::NotInitialized)?;
+        let asset_b: Address = env.storage().instance().get(&AmmKey::AssetB).unwrap();
+        let ra: i128 = env.storage().instance().get(&AmmKey::ReserveA).unwrap_or(0);
+        let rb: i128 = env.storage().instance().get(&AmmKey::ReserveB).unwrap_or(0);
+
+        // Determine in/out reserves by which asset is coming in.
+        let (reserve_in, reserve_out, is_a_in) = if asset_in == asset_a {
+            (ra, rb, true)
+        } else if asset_in == asset_b {
+            (rb, ra, false)
+        } else {
+            return Err(AmmError::UnknownAsset);
+        };
+        if reserve_in <= 0 || reserve_out <= 0 {
+            return Err(AmmError::InsufficientLiquidity);
+        }
+
+        let in_fee = amount_in * 997 / 1000;
+        let amount_out = reserve_out * in_fee / (reserve_in + in_fee);
+        if amount_out <= 0 {
+            return Err(AmmError::InsufficientLiquidity);
+        }
+        if amount_out < min_out {
+            return Err(AmmError::SlippageExceeded);
+        }
+
+        let this = env.current_contract_address();
+        // pull asset_in from caller; push asset_out to `to`
+        let asset_out = if is_a_in { asset_b.clone() } else { asset_a.clone() };
+        token::Client::new(&env, &asset_in).transfer(&to, &this, &amount_in);
+        token::Client::new(&env, &asset_out).transfer(&this, &to, &amount_out);
+
+        // update reserves
+        if is_a_in {
+            env.storage().instance().set(&AmmKey::ReserveA, &(ra + amount_in));
+            env.storage().instance().set(&AmmKey::ReserveB, &(rb - amount_out));
+        } else {
+            env.storage().instance().set(&AmmKey::ReserveB, &(rb + amount_in));
+            env.storage().instance().set(&AmmKey::ReserveA, &(ra - amount_out));
+        }
+        Swapped { asset_in, amount_in, amount_out }.publish(&env);
+        Ok(amount_out)
+    }
+
     /// (reserve_a, reserve_b). Implements SwapVenue::reserves.
     pub fn reserves(env: Env) -> (i128, i128) {
         let ra: i128 = env.storage().instance().get(&AmmKey::ReserveA).unwrap_or(0);
