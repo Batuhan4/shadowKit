@@ -6,9 +6,14 @@ version = 4
 name = "agent-policy"
 version = "0.1.0"
 dependencies = [
+ "ark-bls12-381 0.4.0",
+ "ark-serialize 0.4.2",
  "ed25519-dalek",
  "fallback-amm",
  "gov-vault",
+ "groth16-verifier",
+ "serde",
+ "serde_json",
  "shadowkit-shared",
  "soroban-sdk",
  "stellar-accounts",
