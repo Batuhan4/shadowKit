@@ -38,12 +38,23 @@ secrets/
 *.swp
 
 # Keep committed circuit fixtures (M4 puts vote.r1cs / vote_final.zkey / verification_key.json here).
-# The global *.r1cs / *.zkey / *.ptau ignores above would otherwise hide them — re-include this path.
+# The global *.r1cs / *.zkey / *.ptau / *.wasm ignores above would otherwise hide them — re-include.
 !circuits/vote/fixtures/
 !circuits/vote/fixtures/*.r1cs
 !circuits/vote/fixtures/*.zkey
 !circuits/vote/fixtures/*.ptau
 !circuits/vote/fixtures/*.json
+!circuits/vote/fixtures/*.wasm
+
+# Keep committed BLS12-381 Poseidon parity helper wasms (M4 §0.1).
+!circuits/poseidon-helpers/fixtures/
+!circuits/poseidon-helpers/fixtures/*.wasm
+
+# Keep committed zk-prover runtime artifacts (helper + vote wasm/zkey/vk for tests & browser proving).
+!packages/zk-prover/artifacts/
+!packages/zk-prover/artifacts/*.wasm
+!packages/zk-prover/artifacts/*.zkey
+!packages/zk-prover/artifacts/*.json
 
 # e2e-hero esbuild bundle (transient)
 .run-e2e-bundle.mjs
