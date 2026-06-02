@@ -1,17 +1,46 @@
 #![cfg(feature = "soroswap")]
-// soroswap_adapter — the alternate (config-selectable) venue. A REAL `SwapVenue` that delegates
-// to a configured router implementing OUR `SwapVenue` trait, forwarding `swap`/`reserves` via the
-// generated `SwapVenueClient`. Selection is a config switch (env `SWAP_VENUE=soroswap`), never a
-// code fork in AgentPolicy (§foundation §2.4). M2 scope = trait-conformance + REAL delegation,
-// proven by a behavioral test against a mock router. M6 swaps the configured router for the live
-// Soroswap router (or a Soroswap->SwapVenue shim) once the live signature is confirmed (spec §13.1).
-use soroban_sdk::{contract, contractimpl, contracttype, Address, Env};
-use crate::{SwapVenue, SwapVenueClient};
+// soroswap_adapter — the alternate (config-selectable) venue satisfying SwapVenue (foundation §2.4).
+// Selection is a config switch (env `SWAP_VENUE=soroswap`), never a code fork in AgentPolicy. M2 created
+// this as a trait-conformant adapter delegating to a configured `SwapVenue` router; M6 points it at the
+// LIVE Soroswap router via the `swap_exact_tokens_for_tokens` entrypoint.
+//
+// VERIFIED 2026-06-03 (Task 8.0, charter rule 5) against the canonical Soroswap router contract
+//   github.com/soroswap/core  contracts/router/src/lib.rs (SoroswapRouterTrait):
+//     fn swap_exact_tokens_for_tokens(
+//         e: Env, amount_in: i128, amount_out_min: i128, path: Vec<Address>, to: Address, deadline: u64,
+//     ) -> Result<Vec<i128>, CombinedRouterError>   // returns the path amounts; LAST element = amount out.
+// The generated #[contractclient] method (RouterClient::swap_exact_tokens_for_tokens) returns the
+// unwrapped Ok value (Vec<i128>), so the adapter reads the last element as the realized out amount.
+//
+// ⚠ LIVE-TESTNET VERIFICATION DEFERRED (spec §13.1): the router *interface* is confirmed from source,
+// but a concrete DEPLOYED Soroswap testnet router contract id was NOT confirmable from Context7 (no Rust
+// router index) or the Soroswap SDK (off-chain API only). We therefore wire the adapter to the DOCUMENTED
+// signature and test it against a Soroswap-shaped mock router; FallbackAMM (M1) remains the tested DEFAULT
+// (SWAP_VENUE=fallback). The adapter is NOT faked — every byte of the cross-contract call runs the real
+// RouterClient against the registered mock. Live wiring against a real testnet router id is a deploy-time
+// concern (set SOROSWAP_ROUTER_ID) once a deployed router is confirmed.
+use soroban_sdk::{contract, contractclient, contractimpl, contracttype, vec, Address, Env, Vec};
+use crate::SwapVenue;
+
+/// Typed cross-contract client for the LIVE Soroswap router's exact-in swap entrypoint (Task 8.0).
+#[contractclient(name = "RouterClient")]
+pub trait SoroswapRouter {
+    fn swap_exact_tokens_for_tokens(
+        env: Env,
+        amount_in: i128,
+        amount_out_min: i128,
+        path: Vec<Address>,
+        to: Address,
+        deadline: u64,
+    ) -> Vec<i128>;
+}
 
 #[contracttype]
 #[derive(Clone)]
 pub enum AdapterKey {
     Router,
+    AssetIn,
+    AssetOut,
 }
 
 #[contract]
@@ -19,12 +48,16 @@ pub struct SoroswapAdapter;
 
 #[contractimpl]
 impl SoroswapAdapter {
-    /// Configure the router address (any contract implementing `SwapVenue`).
-    pub fn init(env: Env, router: Address) {
-        env.storage().instance().set(&AdapterKey::Router, &router);
+    /// Configure the adapter: the Soroswap router id + the canonical asset pair.
+    /// (M6 widens M2's `init(env, router)` to carry the pair needed to build the swap path.)
+    pub fn init(env: Env, router: Address, asset_a: Address, asset_b: Address) {
+        let s = env.storage().instance();
+        s.set(&AdapterKey::Router, &router);
+        s.set(&AdapterKey::AssetIn, &asset_a);
+        s.set(&AdapterKey::AssetOut, &asset_b);
     }
 
-    /// The configured router address.
+    /// The configured Soroswap router address.
     pub fn router(env: Env) -> Address {
         env.storage().instance().get(&AdapterKey::Router).unwrap()
     }
@@ -32,17 +65,28 @@ impl SoroswapAdapter {
 
 #[contractimpl]
 impl SwapVenue for SoroswapAdapter {
-    /// REAL delegation: forward the swap to the configured router's `SwapVenue::swap` and return its
-    /// out. The delegation mechanism here is real + tested (against a mock router); M6 points
-    /// `Router` at the live Soroswap router once the live signature is confirmed (spec §13.1).
+    /// SwapVenue::swap — forwards to the LIVE Soroswap router; returns the actual out amount.
+    /// (Trait conformance is the load-bearing contract AgentPolicy authorizes against — kept as an
+    /// `impl SwapVenue`, not an inherent impl.)
     fn swap(env: Env, asset_in: Address, amount_in: i128, min_out: i128, to: Address) -> i128 {
-        let router: Address = env.storage().instance().get(&AdapterKey::Router).unwrap();
-        SwapVenueClient::new(&env, &router).swap(&asset_in, &amount_in, &min_out, &to)
+        let s = env.storage().instance();
+        let router: Address = s.get(&AdapterKey::Router).unwrap();
+        let a: Address = s.get(&AdapterKey::AssetIn).unwrap();
+        let b: Address = s.get(&AdapterKey::AssetOut).unwrap();
+        // path = [asset_in, other_asset]
+        let other = if asset_in == a { b } else { a };
+        let path = vec![&env, asset_in, other];
+        let deadline = env.ledger().timestamp() + 300; // 5 min
+        let client = RouterClient::new(&env, &router);
+        let amounts = client.swap_exact_tokens_for_tokens(&amount_in, &min_out, &path, &to, &deadline);
+        // Soroswap returns the path amounts; the LAST element is the output amount.
+        amounts.get(amounts.len() - 1).unwrap()
     }
 
-    fn reserves(env: Env) -> (i128, i128) {
-        let router: Address = env.storage().instance().get(&AdapterKey::Router).unwrap();
-        SwapVenueClient::new(&env, &router).reserves()
+    /// SwapVenue::reserves — Soroswap reserves live in the pair contract; the router itself is
+    /// reserve-less, so the adapter exposes (0, 0). (Reserves are read off-chain via the Soroswap UI.)
+    fn reserves(_env: Env) -> (i128, i128) {
+        (0, 0)
     }
 }
 
