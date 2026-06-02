@@ -152,6 +152,24 @@ impl TestCtx {
 
     /// Advance the ledger clock to `ts`.
     fn advance_to(&self, ts: u64) { advance_to(&self.env, ts); }
+
+    /// F2 helper: decode one emitted (XDR) `ContractEvent` and report whether it is a `ProposalClosed`
+    /// event for proposal `id` whose (approved, weighted_yes, weighted_no) match the expected values.
+    /// Compares the full event XDR (topics + data) against the expected `ProposalClosed.to_xdr` — an
+    /// exact match, not a field-by-field decode hack. SDK 26.0.1: `Val` lacks `PartialEq`, so the XDR
+    /// form (the established pattern in `close_and_reveal_emits_proposalclosed_event_approved`) is used.
+    fn is_proposal_closed(
+        &self,
+        e: &soroban_sdk::xdr::ContractEvent,
+        id: u32,
+        approved: bool,
+        weighted_yes: i128,
+        weighted_no: i128,
+    ) -> bool {
+        use soroban_sdk::Event;
+        let expected = crate::ProposalClosed { id, approved, weighted_yes, weighted_no };
+        *e == expected.to_xdr(&self.env, &self.client.address)
+    }
 }
 
 // ============================================================================
@@ -619,6 +637,48 @@ fn double_reveal_rejected() {
     gov.close_and_reveal(&id, &20i128, &5i128, &decs);             // first reveal: ok
     let r = gov.try_close_and_reveal(&id, &20i128, &5i128, &decs); // second: must reject
     assert_eq!(r, Err(Ok(GovError::AlreadyRevealed)));
+}
+
+// ============================================================================
+// Task F2 — on-chain E2E: full sealed-vote -> close_and_reveal -> Approved + ProposalClosed event.
+// The FIRST-time tally reveal drives is_approved true (used by AgentPolicy in M2) AND publishes
+// ProposalClosed(approved=true, yes=350, no=300). Default-feature (PRIMARY) path.
+// ============================================================================
+#[test]
+fn e2e_sealed_to_reveal_to_approved_emits_closed_event() {
+    use soroban_sdk::testutils::Events;
+    let t = TestCtx::new();
+    let id = t.create_proposal_with_deadline(1000);
+    // before close: sealed, no tally, not approved
+    let h0 = t.store_sealed(id, 0x1A, 100);
+    let h1 = t.store_sealed(id, 0x1B, 101);
+    let h2 = t.store_sealed(id, 0x1C, 102);
+    assert_eq!(t.client.proposal(&id).weighted_yes, None);
+    assert!(!t.client.is_approved(&id));
+
+    t.advance_to(1001);
+    let decs = soroban_sdk::vec![&t.env,
+        VoteDecryption { direction: 1, weight: 100, sealed_commitment_hash: h0 },
+        VoteDecryption { direction: 1, weight: 250, sealed_commitment_hash: h1 },
+        VoteDecryption { direction: 0, weight: 300, sealed_commitment_hash: h2 }];
+    t.client.close_and_reveal(&id, &350i128, &300i128, &decs);
+
+    // ProposalClosed event present with approved=true, weighted_yes=350. Capture the events buffer
+    // IMMEDIATELY after close — SDK 26.0.1 `events().all()` keeps only the LAST invocation's events,
+    // so a subsequent read call (proposal/is_approved) would clear it.
+    let all = t.env.events().all();
+    let xdr_events = all.events();
+    let found = xdr_events.iter().any(|e| {
+        // decode the ProposalClosed event payload; match approved=true & weighted_yes=350
+        t.is_proposal_closed(e, id, true, 350, 300)
+    });
+    assert!(found, "expected ProposalClosed(approved=true, yes=350, no=300) event");
+
+    // after close: tally revealed (first time), approved
+    let v = t.client.proposal(&id);
+    assert_eq!(v.weighted_yes, Some(350));
+    assert_eq!(v.weighted_no, Some(300));
+    assert!(t.client.is_approved(&id));
 }
 
 // ============================================================================
