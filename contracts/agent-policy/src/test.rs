@@ -1400,4 +1400,49 @@ mod integration {
         );
     }
 
+    /// Task M2-7 — NEGATIVE: the SAME on-chain wiring but WITHOUT quorum/approval. The swap is driven
+    /// through the treasury host's __check_auth (so enforce runs FOR REAL with a REAL session signature)
+    /// and is REJECTED with the EXACT PolicyError::NotApproved via the host Err surface (NOT
+    /// catch_unwind). Then assert the treasury balances DID NOT move (the swap was never authorized).
+    #[test]
+    fn execute_without_quorum_is_blocked() {
+        // proposal CREATED but NOT closed/approved (no quorum) -> is_approved == false.
+        let s = gates::setup_full_open_with_assets(10_000i128);
+        token::StellarAssetClient::new(&s.env, &s.usdc).mint(&s.treasury, &10_000i128);
+        let usdc = token::Client::new(&s.env, &s.usdc);
+        let xlm = token::Client::new(&s.env, &s.xlm);
+        let usdc_before = usdc.balance(&s.treasury);
+        let xlm_before = xlm.balance(&s.treasury);
+        assert_eq!(usdc_before, 10_000i128);
+
+        // The gate is exercised FOR REAL: host __check_auth -> enforce -> NotApproved (NO catch_unwind).
+        let swap_ctx = gates::swap_ctx(&s.env, &s.amm, &s.usdc, 10_000, 1, &s.treasury);
+        let auth_contexts: Vec<Context> = soroban_sdk::vec![&s.env, swap_ctx];
+        let signature_payload = BytesN::from_array(&s.env, &[3u8; 32]);
+        let signed = sign_auth_payload(
+            &s.env, &s.verifier, &s.sk, &s.pubkey, &signature_payload, s.rule_id, false,
+        );
+        s.env.mock_all_auths_allowing_non_root_auth();
+        let res = check_auth(&s.env, &s.treasury, &signature_payload, &signed, &auth_contexts);
+        // The host surfaces the policy's NotApproved as a contract error => enforce ran and rejected.
+        let expected = soroban_sdk::Error::from_contract_error(PolicyError::NotApproved as u32);
+        assert_eq!(
+            res,
+            Err(Ok(expected)),
+            "swap must be blocked (NotApproved) when the proposal has no quorum (got {:?})",
+            res
+        );
+
+        // and NO funds moved (the swap was never authorized).
+        assert_eq!(
+            usdc.balance(&s.treasury),
+            usdc_before,
+            "no USDC may leave the treasury when the proposal is not approved"
+        );
+        assert_eq!(
+            xlm.balance(&s.treasury),
+            xlm_before,
+            "no XLM may arrive when the proposal is not approved"
+        );
+    }
 }
