@@ -99,6 +99,18 @@ fn load_public(env: &Env) -> Vec<Fr> {
     }
     out
 }
+// BINDING order [merkleRoot, nullifier, proposalId, sealedCommitmentHash] for the `verify` convenience
+// entrypoint (which uses the EMBEDDED VK whose IC columns were re-mapped to this order, Task 4.15).
+// public.json native order = [nullifier, merkleRoot, proposalId, sealedCommitmentHash].
+fn load_public_binding(env: &Env) -> Vec<Fr> {
+    let arr: StdVec<String> = serde_json::from_str(PUBLIC).unwrap();
+    let mut out = Vec::new(env);
+    out.push_back(fr(env, &arr[1])); // merkleRoot
+    out.push_back(fr(env, &arr[0])); // nullifier
+    out.push_back(fr(env, &arr[2])); // proposalId
+    out.push_back(fr(env, &arr[3])); // sealedCommitmentHash
+    out
+}
 fn client(e: &Env) -> Groth16VerifierClient<'_> {
     Groth16VerifierClient::new(e, &e.register(Groth16Verifier {}, ()))
 }
@@ -114,8 +126,9 @@ fn valid_proof_verifies_true() {
 fn embedded_vk_accepts_committed_proof() {
     let env = Env::default();
     let c = client(&env);
-    // `verify` loads the EMBEDDED vk (vk.rs) — must accept the same committed proof.
-    assert_eq!(c.verify(&load_proof(&env), &load_public(&env)), true);
+    // `verify` loads the EMBEDDED vk (vk.rs, binding-order IC) — must accept the committed proof when
+    // fed BINDING-order public signals [merkleRoot, nullifier, proposalId, sealedCommitmentHash].
+    assert_eq!(c.verify(&load_proof(&env), &load_public_binding(&env)), true);
 }
 
 #[test]
@@ -125,16 +138,16 @@ fn tampered_proof_verifies_false() {
     let mut p = load_proof(&env);
     // Flip pi_c to alpha-of-vk (a valid but wrong G1 point) -> pairing check fails -> false.
     p.c = load_vk(&env).alpha;
-    assert_eq!(c.verify(&p, &load_public(&env)), false);
+    assert_eq!(c.verify(&p, &load_public_binding(&env)), false);
 }
 
 #[test]
 fn wrong_public_input_verifies_false() {
     let env = Env::default();
     let c = client(&env);
-    let mut pubs = load_public(&env);
-    // Replace nullifier (index 0 in public.json native order) with a different field element.
-    pubs.set(0, fr(&env, "42"));
+    let mut pubs = load_public_binding(&env);
+    // Replace nullifier (index 1 in BINDING order) with a different field element.
+    pubs.set(1, fr(&env, "42"));
     assert_eq!(c.verify(&load_proof(&env), &pubs), false);
 }
 
@@ -154,7 +167,7 @@ fn verify_with_malformed_returns_false_not_panic() {
     let env = Env::default();
     let c = client(&env);
     // The convenience `verify` maps any error to false (never panics).
-    let mut short = load_public(&env);
+    let mut short = load_public_binding(&env);
     short.pop_back();
     assert_eq!(c.verify(&load_proof(&env), &short), false);
 }

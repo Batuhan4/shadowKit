@@ -39,8 +39,20 @@ fn arr(b: &[u8]) -> String {
 fn main() {
     let raw = fs::read_to_string("circuits/vote/fixtures/verification_key.json").unwrap();
     let v: VkJson = serde_json::from_str(&raw).unwrap();
+    // RE-MAP (foundation §2.1/§4): snarkjs NATIVE public order is
+    //   [nullifier, merkleRoot, proposalId, sealedCommitmentHash]
+    // so the native VK's IC columns are [base, nullifier, merkleRoot, proposalId, sealedCommitment].
+    // The on-chain `verify` entrypoint takes pub_signals in the BINDING order
+    //   [merkleRoot, nullifier, proposalId, sealedCommitmentHash].
+    // So the EMBEDDED VK must swap IC[1] (nullifier col) and IC[2] (merkleRoot col); the other IC
+    // columns are unchanged. This makes vk_x = ic0 + Σ binding[i]·embedded_ic[i+1] identical to the
+    // native vk_x = ic0 + Σ native[i]·native_ic[i+1] (Task 4.35 proves prover↔contract re-map agree).
+    let mut ic_native: Vec<&[String; 3]> = v.ic.iter().collect();
+    assert_eq!(ic_native.len(), 5, "expected 5 IC points (4 public signals + 1)");
+    // swap positions 1 and 2 (nullifier <-> merkleRoot columns).
+    ic_native.swap(1, 2);
     let mut ic = String::new();
-    for p in &v.ic {
+    for p in &ic_native {
         ic.push_str(&format!(
             "        G1Affine::from_array(env, &{}),\n",
             arr(&g1_bytes(&p[0], &p[1]))
