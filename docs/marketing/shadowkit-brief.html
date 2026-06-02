@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ShadowKit — Project Brief</title>
+<style>
+  @page { size: A4; margin: 0; }
+  :root{
+    --void:#0B0B12; --void2:#0E0E16; --surface:#15161F; --surface2:#1B1C28;
+    --line:rgba(255,255,255,.08); --line2:rgba(255,255,255,.14);
+    --ink:#F3F4FA; --body:#C7C9D6; --muted:#9093A8; --faint:#6B6E86;
+    --violet:#8B7CFF; --violet2:#6D5BFF; --cyan:#3DE0E6; --gold:#F6C453;
+    --green:#56D98A; --red:#FF7A85;
+    --grad:linear-gradient(135deg,var(--violet),var(--cyan));
+    --fdisp:'Space Grotesk','Cantarell',sans-serif;
+    --fbody:'Cantarell','Noto Sans',sans-serif;
+    --fmono:'Hack','Liberation Mono',monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    font-family:var(--fbody); color:var(--body); background:var(--void);
+    -webkit-print-color-adjust:exact; print-color-adjust:exact;
+    -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+  }
+  .page{
+    position:relative; width:210mm; min-height:297mm; padding:17mm 16mm 20mm;
+    background:var(--void); overflow:hidden; page-break-after:always;
+    -webkit-print-color-adjust:exact; print-color-adjust:exact;
+  }
+  .page:last-child{page-break-after:auto}
+  /* ambient glows */
+  .page::before,.page::after{content:"";position:absolute;border-radius:50%;filter:blur(70px);z-index:0;pointer-events:none}
+  .page::before{width:520px;height:520px;top:-180px;right:-160px;background:radial-gradient(circle,rgba(139,124,255,.16),transparent 70%)}
+  .page::after{width:480px;height:480px;bottom:-200px;left:-160px;background:radial-gradient(circle,rgba(61,224,230,.12),transparent 70%)}
+  .inner{position:relative;z-index:1}
+
+  h1,h2,h3,h4{font-family:var(--fdisp);color:var(--ink);margin:0;letter-spacing:-.02em;font-weight:600}
+  p{margin:0}
+  .eyebrow{font-family:var(--fmono);font-size:10.5px;letter-spacing:.32em;text-transform:uppercase;color:var(--violet);font-weight:700}
+  .eyebrow.cy{color:var(--cyan)} .eyebrow.gd{color:var(--gold)} .eyebrow.gr{color:var(--green)} .eyebrow.rd{color:var(--red)}
+  .h2{font-size:30px;line-height:1.08;margin:10px 0 0}
+  .lead{font-size:14.5px;line-height:1.62;color:var(--body);margin-top:14px;max-width:165mm}
+  .muted{color:var(--muted)} .faint{color:var(--faint)}
+  .accent{color:var(--violet)} .cyan{color:var(--cyan)} .gold{color:var(--gold)} .green{color:var(--green)}
+  .mono{font-family:var(--fmono)}
+  .grad-text{background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .sec-head{display:flex;align-items:baseline;gap:14px;margin-bottom:6px}
+  .sec-num{font-family:var(--fmono);font-size:11px;color:var(--faint);letter-spacing:.1em}
+  hr.rule{border:0;border-top:1px solid var(--line);margin:18px 0}
+
+  /* footer */
+  .foot{position:absolute;left:16mm;right:16mm;bottom:11mm;display:flex;justify-content:space-between;align-items:center;
+        font-family:var(--fmono);font-size:9.5px;letter-spacing:.12em;color:var(--faint);z-index:2;text-transform:uppercase}
+  .foot .dot{color:var(--violet)}
+
+  /* generic card */
+  .card{background:linear-gradient(180deg,rgba(255,255,255,.035),rgba(255,255,255,.012));border:1px solid var(--line);
+        border-radius:14px;padding:18px 18px 16px}
+  .grid{display:grid;gap:13px}
+  .g2{grid-template-columns:1fr 1fr}
+  .g3{grid-template-columns:1fr 1fr 1fr}
+
+  .ibadge{width:42px;height:42px;border-radius:11px;display:flex;align-items:center;justify-content:center;flex:0 0 auto;
+          background:rgba(139,124,255,.12);border:1px solid rgba(139,124,255,.28);color:var(--violet)}
+  .ibadge.cy{background:rgba(61,224,230,.1);border-color:rgba(61,224,230,.28);color:var(--cyan)}
+  .ibadge.gd{background:rgba(246,196,83,.1);border-color:rgba(246,196,83,.3);color:var(--gold)}
+  .ibadge.gr{background:rgba(86,217,138,.1);border-color:rgba(86,217,138,.3);color:var(--green)}
+  .ibadge.rd{background:rgba(255,122,133,.1);border-color:rgba(255,122,133,.3);color:var(--red)}
+  .ico{width:22px;height:22px;display:block}
+
+  .chip{display:inline-flex;align-items:center;gap:7px;font-family:var(--fmono);font-size:10.5px;letter-spacing:.08em;
+        text-transform:uppercase;color:var(--body);background:rgba(255,255,255,.04);border:1px solid var(--line);
+        border-radius:999px;padding:6px 12px}
+  .chip .d{width:6px;height:6px;border-radius:50%;background:var(--violet)}
+  .chip .d.cy{background:var(--cyan)} .chip .d.gd{background:var(--gold)} .chip .d.gr{background:var(--green)}
+
+  .card h3{font-size:16.5px;margin:0}
+  .card .plain{font-size:13px;line-height:1.55;color:var(--body);margin-top:7px}
+  .tech{font-family:var(--fmono);font-size:10.5px;line-height:1.5;color:var(--muted);margin-top:10px;
+        padding-top:9px;border-top:1px dashed var(--line2)}
+  .tech b{color:var(--cyan);font-weight:400}
+
+  ul.clean{margin:10px 0 0;padding:0;list-style:none}
+  ul.clean li{position:relative;padding-left:20px;font-size:13px;line-height:1.5;margin-bottom:9px;color:var(--body)}
+  ul.clean li::before{content:"";position:absolute;left:2px;top:7px;width:7px;height:7px;border-radius:2px;background:var(--grad)}
+  ul.clean li b{color:var(--ink);font-weight:600;font-family:var(--fdisp)}
+
+  /* COVER */
+  .cover{display:flex;flex-direction:column;min-height:247mm}
+  .cover-top{display:flex;justify-content:space-between;align-items:flex-start}
+  .logo-mark{width:78px;height:78px}
+  .badges{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;max-width:78mm}
+  .wordmark{font-family:var(--fdisp);font-weight:700;font-size:84px;line-height:.96;letter-spacing:-.035em;margin:0}
+  .sub-word{font-family:var(--fdisp);font-weight:500;font-size:23px;color:var(--muted);letter-spacing:-.01em;margin-top:6px}
+  .tagline{font-family:var(--fdisp);font-weight:500;font-size:26px;line-height:1.18;color:var(--ink);margin-top:26px;max-width:150mm}
+  .cover-desc{font-size:14.5px;line-height:1.6;color:var(--body);margin-top:18px;max-width:150mm}
+  .cover-foot{display:flex;gap:26px;margin-top:30px;flex-wrap:wrap}
+  .cf{display:flex;flex-direction:column;gap:3px}
+  .cf .k{font-family:var(--fmono);font-size:9.5px;letter-spacing:.2em;text-transform:uppercase;color:var(--faint)}
+  .cf .v{font-family:var(--fdisp);font-size:14px;color:var(--ink);font-weight:500}
+
+  /* pillars */
+  .pillar{display:flex;gap:16px;align-items:flex-start}
+  .pillar .num{font-family:var(--fdisp);font-weight:700;font-size:13px;color:var(--faint)}
+
+  /* hero loop stepper */
+  .steps{position:relative;margin-top:16px}
+  .step{display:grid;grid-template-columns:46px 1fr;gap:16px;padding-bottom:15px;position:relative}
+  .step:not(:last-child)::before{content:"";position:absolute;left:22px;top:44px;bottom:-2px;width:2px;
+        background:linear-gradient(180deg,rgba(139,124,255,.55),rgba(139,124,255,.08))}
+  .step .num{width:44px;height:44px;border-radius:12px;background:var(--surface);border:1px solid var(--line2);
+        display:flex;align-items:center;justify-content:center;font-family:var(--fdisp);font-weight:700;font-size:16px;color:var(--violet);z-index:1}
+  .step .sc h4{font-size:15px;display:flex;align-items:center;gap:9px}
+  .step .sc h4 .si{width:17px;height:17px;color:var(--cyan)}
+  .step .sc p{font-size:12.5px;line-height:1.5;color:var(--muted);margin-top:4px}
+  .step .sc .who{font-family:var(--fmono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-top:5px}
+
+  /* problem */
+  .prob{display:flex;gap:14px;align-items:flex-start}
+  .prob h3{font-size:15.5px}
+  .prob p{font-size:12.5px;line-height:1.55;margin-top:6px;color:var(--body)}
+
+  /* persona */
+  .persona h3{font-size:15.5px;display:flex;align-items:center;gap:9px}
+  .persona .role{font-family:var(--fmono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--violet);margin-top:2px}
+  .persona .pain{font-size:12px;line-height:1.5;color:var(--muted);margin-top:9px}
+  .persona .say{font-size:12px;line-height:1.5;color:var(--ink);margin-top:9px;padding:9px 11px;background:rgba(139,124,255,.08);
+        border-left:2px solid var(--violet);border-radius:0 8px 8px 0}
+  .persona .say b{color:var(--violet);font-family:var(--fmono);font-size:9px;letter-spacing:.1em;display:block;text-transform:uppercase;margin-bottom:3px}
+
+  /* taglines */
+  .tag-primary{font-family:var(--fdisp);font-weight:600;font-size:30px;line-height:1.12;letter-spacing:-.02em;margin:0}
+  .tag-list{margin-top:16px;display:grid;gap:9px}
+  .tag-list .t{font-family:var(--fdisp);font-size:16px;color:var(--body);padding:11px 15px;background:rgba(255,255,255,.03);
+        border:1px solid var(--line);border-radius:10px;display:flex;gap:11px;align-items:center}
+  .tag-list .t .n{font-family:var(--fmono);font-size:11px;color:var(--violet)}
+  .pitch{font-size:13px;line-height:1.6;color:var(--body)}
+  .pitch b{color:var(--ink);font-weight:600}
+  .saynot{display:grid;grid-template-columns:1fr 1fr;gap:11px;margin-top:6px}
+  .saynot .col{padding:12px 14px;border-radius:11px}
+  .saynot .do{background:rgba(86,217,138,.07);border:1px solid rgba(86,217,138,.25)}
+  .saynot .dont{background:rgba(255,122,133,.06);border:1px solid rgba(255,122,133,.22)}
+  .saynot h4{font-family:var(--fmono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;margin-bottom:8px}
+  .saynot .do h4{color:var(--green)} .saynot .dont h4{color:var(--red)}
+  .saynot li{font-size:11.5px;line-height:1.45;margin-bottom:6px;list-style:none;padding-left:15px;position:relative}
+  .saynot li::before{position:absolute;left:0;top:0}
+  .saynot .do li::before{content:"+";color:var(--green)}
+  .saynot .dont li::before{content:"\2013";color:var(--red)}
+  .saynot ul{margin:0;padding:0}
+
+  /* brand / swatches */
+  .swatches{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:6px}
+  .sw{border-radius:11px;overflow:hidden;border:1px solid var(--line)}
+  .sw .chipc{height:60px}
+  .sw .meta{padding:9px 10px;background:var(--surface)}
+  .sw .nm{font-family:var(--fdisp);font-size:12px;color:var(--ink);font-weight:500}
+  .sw .hex{font-family:var(--fmono);font-size:10px;color:var(--muted);margin-top:2px}
+  .sw .role{font-family:var(--fmono);font-size:8.5px;color:var(--faint);letter-spacing:.06em;text-transform:uppercase;margin-top:4px}
+  .concepts{display:grid;grid-template-columns:repeat(3,1fr);gap:11px;margin-top:6px}
+  .concept{background:var(--surface);border:1px solid var(--line);border-radius:13px;padding:16px;text-align:center}
+  .concept svg{height:62px;margin-bottom:9px}
+  .concept .cn{font-family:var(--fdisp);font-size:12.5px;color:var(--ink);font-weight:600}
+  .concept .cd{font-size:10.5px;color:var(--muted);line-height:1.4;margin-top:4px}
+  .type-demo{display:grid;grid-template-columns:1fr 1fr;gap:11px}
+  .type-card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:15px}
+  .type-card .big{font-family:var(--fdisp);font-weight:700;font-size:34px;color:var(--ink);line-height:1}
+  .type-card .big.m{font-family:var(--fmono);font-weight:700;font-size:30px}
+  .type-card .nm{font-family:var(--fmono);font-size:10px;color:var(--violet);letter-spacing:.1em;text-transform:uppercase;margin-top:10px}
+  .type-card .role{font-size:11px;color:var(--muted);margin-top:3px;line-height:1.4}
+  .type-card .alpha{font-size:12px;color:var(--muted);margin-top:7px;letter-spacing:.04em}
+
+  /* glossary */
+  .gloss{display:grid;grid-template-columns:1fr 1fr;gap:9px 22px}
+  .gl{padding-bottom:8px;border-bottom:1px solid var(--line)}
+  .gl .term{font-family:var(--fdisp);font-size:12.5px;color:var(--ink);font-weight:600}
+  .gl .def{font-size:11px;line-height:1.45;color:var(--muted);margin-top:3px}
+  .facts{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:6px}
+  .fact{display:flex;gap:11px;align-items:flex-start;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:11px 13px}
+  .fact .k{font-family:var(--fmono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);width:58px;flex:0 0 auto;padding-top:2px}
+  .fact .v{font-size:12px;line-height:1.45;color:var(--ink)}
+  .note{margin-top:16px;padding:14px 16px;border-radius:12px;background:rgba(139,124,255,.07);border:1px solid rgba(139,124,255,.22);
+        font-size:12px;line-height:1.55;color:var(--body)}
+  .note b{color:var(--violet);font-family:var(--fdisp)}
+  .badge-track{display:inline-flex;align-items:center;gap:6px;font-family:var(--fmono);font-size:9.5px;letter-spacing:.08em;
+        text-transform:uppercase;color:var(--ink);background:rgba(255,255,255,.05);border:1px solid var(--line2);border-radius:999px;padding:5px 11px}
+  .badge-track.win{border-color:rgba(246,196,83,.4);background:rgba(246,196,83,.08);color:var(--gold)}
+</style>
+</head>
+<body>
+
+<!-- ============ PAGE 1 · COVER ============ -->
+<section class="page">
+  <div class="inner cover">
+    <div class="cover-top">
+      <svg class="logo-mark" viewBox="0 0 128 128" fill="none" aria-hidden="true">
+        <defs>
+          <linearGradient id="g1" x1="0" y1="0" x2="128" y2="128" gradientUnits="userSpaceOnUse">
+            <stop stop-color="#8B7CFF"/><stop offset="1" stop-color="#3DE0E6"/>
+          </linearGradient>
+          <linearGradient id="g2" x1="40" y1="16" x2="40" y2="112" gradientUnits="userSpaceOnUse">
+            <stop stop-color="#8B7CFF" stop-opacity=".30"/><stop offset="1" stop-color="#8B7CFF" stop-opacity="0"/>
+          </linearGradient>
+        </defs>
+        <path d="M44 16 H84 L112 44 V84 L84 112 H44 L16 84 V44 Z" stroke="url(#g1)" stroke-width="3.5"/>
+        <path d="M44 16 H64 V112 H44 L16 84 V44 Z" fill="url(#g2)"/>
+        <circle cx="64" cy="57" r="11" stroke="url(#g1)" stroke-width="3.5"/>
+        <path d="M64 68 V87" stroke="url(#g1)" stroke-width="3.5" stroke-linecap="round"/>
+        <circle cx="100" cy="28" r="4.5" fill="#F6C453"/>
+      </svg>
+      <div class="badges">
+        <span class="badge-track win">★ Main</span>
+        <span class="badge-track">Hack&nbsp;Agentic</span>
+        <span class="badge-track">Hack&nbsp;Privacy</span>
+      </div>
+    </div>
+
+    <div style="margin-top:46px">
+      <div class="eyebrow">Build On Stellar · IBW 2026 · Istanbul</div>
+      <h1 class="wordmark"><span class="grad-text">Shadow</span>Kit</h1>
+      <div class="sub-word">&amp; AgentBoard&nbsp;&nbsp;·&nbsp;&nbsp;demo: ShadowDAO</div>
+    </div>
+
+    <p class="tagline">Vote in the shadows.<br><span class="grad-text">Execute in the light.</span></p>
+    <p class="cover-desc">
+      Zero-knowledge, AI-agent <b style="color:var(--ink)">governance infrastructure for Stellar</b>. Members vote in total
+      privacy — who voted, how, and how much weight, all hidden — and the result stays <b style="color:var(--ink)">sealed until the
+      deadline</b>. At close, an autonomous AI agent executes the decision on-chain, bounded by a policy it
+      <b style="color:var(--ink)">mathematically cannot break</b>.
+    </p>
+
+    <div style="display:flex;gap:9px;margin-top:24px;flex-wrap:wrap">
+      <span class="chip"><span class="d"></span>Private &amp; Sealed</span>
+      <span class="chip"><span class="d cy"></span>Autonomous Agent</span>
+      <span class="chip"><span class="d gd"></span>On-chain Safety Lock</span>
+    </div>
+
+    <div style="flex:1"></div>
+
+    <div class="cover-foot">
+      <div class="cf"><span class="k">Category</span><span class="v">ZK + AI Governance</span></div>
+      <div class="cf"><span class="k">Chain</span><span class="v">Stellar · Soroban</span></div>
+      <div class="cf"><span class="k">Format</span><span class="v">36h Hackathon</span></div>
+      <div class="cf"><span class="k">Status</span><span class="v">Live demo loop ✓</span></div>
+    </div>
+  </div>
+  <div class="foot"><span><span class="dot">◆</span> ShadowKit · Project Brief</span><span>Design &amp; Marketing · 01</span></div>
+</section>
+
+<!-- ============ PAGE 2 · THE BIG IDEA ============ -->
+<section class="page">
+  <div class="inner">
+    <div class="sec-head"><span class="sec-num">01</span><span class="eyebrow">The Big Idea</span></div>
+    <h2 class="h2">Governance that stays private — and acts on its own.</h2>
+    <p class="lead">
+      Today, on-chain voting is a glass box: everyone sees who voted, how, and how much they hold — and whoever holds the
+      most can watch the live tally and swing it at the last second. Then, even after a vote passes, a human still has to
+      manually sign off to make anything happen. <b style="color:var(--ink)">ShadowKit removes both problems at once.</b>
+    </p>
+
+    <div class="grid g3" style="margin-top:26px">
+      <div class="card">
+        <div class="ibadge"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.4-3 7.3-7 8.5C8 21.3 5 18.4 5 14V6l7-3z"/><path d="M9.5 12.5l1.8 1.8 3.3-3.6"/></svg></div>
+        <h3 style="margin-top:13px">Private &amp; sealed</h3>
+        <p class="plain">Zero-knowledge proofs hide identity, choice, and weight. Timelock encryption keeps the tally invisible until close.</p>
+      </div>
+      <div class="card">
+        <div class="ibadge cy"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="7" width="16" height="12" rx="3"/><path d="M9 12h0M15 12h0"/><path d="M12 7V4M8 4h8"/></svg></div>
+        <h3 style="margin-top:13px">Autonomous</h3>
+        <p class="plain">When voting closes, an AI agent reads the result and executes the on-chain action itself — no human approval needed.</p>
+      </div>
+      <div class="card">
+        <div class="ibadge gd"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/><path d="M10.5 15.5l1.2 1.2 2-2.2"/></svg></div>
+        <h3 style="margin-top:13px">Unbreakable</h3>
+        <p class="plain">The agent's spending is gated on-chain. Even a hallucinating AI literally cannot move funds the vote didn't approve.</p>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:22px;display:flex;gap:20px;align-items:center;background:linear-gradient(135deg,rgba(139,124,255,.10),rgba(61,224,230,.06))">
+      <div style="flex:1">
+        <div class="eyebrow cy">In one sentence</div>
+        <p style="font-family:var(--fdisp);font-size:18px;line-height:1.34;color:var(--ink);margin-top:10px;font-weight:500">
+          ShadowKit lets any DAO <span class="accent">vote in complete privacy</span>, keeps the outcome
+          <span class="gold">sealed until the deadline</span>, and lets an <span class="cyan">autonomous agent</span>
+          carry out the decision — all secured by <span style="color:var(--ink)">math, not middlemen</span>.
+        </p>
+      </div>
+    </div>
+
+    <p class="lead" style="margin-top:22px">
+      It ships as <b style="color:var(--ink)">infrastructure</b> — an SDK and middleware any Stellar project can adopt — not a
+      one-off app. The sample treasury, <b style="color:var(--ink)">ShadowDAO</b>, is just the showroom.
+    </p>
+  </div>
+  <div class="foot"><span><span class="dot">◆</span> ShadowKit · The Big Idea</span><span>02</span></div>
+</section>
+
+<!-- ============ PAGE 3 · THE PROBLEM ============ -->
+<section class="page">
+  <div class="inner">
+    <div class="sec-head"><span class="sec-num">02</span><span class="eyebrow rd">The Problem</span></div>
+    <h2 class="h2">Web3 voting is public, gameable, and slow to act.</h2>
+    <p class="lead">Three cracks in how decentralized communities decide and execute today — each one a reason people don't participate, or don't trust the outcome.</p>
+
+    <div class="grid" style="margin-top:24px;gap:14px">
+      <div class="card prob">
+        <div class="ibadge rd"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6a12 12 0 0 1-5-1"/><circle cx="12" cy="12" r="2.5"/><path d="M3 3l18 18"/></svg></div>
+        <div>
+          <h3>The glass-box ballot</h3>
+          <p>On-chain votes are public by default. Small holders are exposed to whales, rival DAOs, and analytics firms who can see — and pressure — every choice. So many simply <b style="color:var(--ink)">don't vote at all</b>.</p>
+        </div>
+      </div>
+      <div class="card prob">
+        <div class="ibadge rd"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l5-5 4 3 7-8"/><path d="M16 4h4v4"/></svg></div>
+        <div>
+          <h3>The bandwagon trap</h3>
+          <p>When the running tally is visible, a whale can <b style="color:var(--ink)">wait, watch, and swing</b> the result at the last second. Live results invite last-minute manipulation and herd behavior — the loudest money wins.</p>
+        </div>
+      </div>
+      <div class="card prob">
+        <div class="ibadge rd"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5"/><path d="M9 2h6"/></svg></div>
+        <div>
+          <h3>The 3am multisig</h3>
+          <p>Even after a vote passes, execution waits on humans to manually co-sign a multisig. It's <b style="color:var(--ink)">slow, centralized, and fragile</b> — a single missing signer can stall a decision the community already made.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:20px;border-color:rgba(255,122,133,.25);background:rgba(255,122,133,.05)">
+      <p style="font-family:var(--fdisp);font-size:15px;line-height:1.4;color:var(--ink)">
+        The result: <span class="rd" style="color:var(--red)">low participation, manipulable outcomes, and execution that depends on the very middlemen decentralization was meant to remove.</span>
+      </p>
+    </div>
+  </div>
+  <div class="foot"><span><span class="dot">◆</span> ShadowKit · The Problem</span><span>03</span></div>
+</section>
+
+<!-- ============ PAGE 4 · THE SOLUTION (3 PILLARS) ============ -->
+<section class="page">
+  <div class="inner">
+    <div class="sec-head"><span class="sec-num">03</span><span class="eyebrow gr">The Solution</span></div>
+    <h2 class="h2">Three pillars, one autonomous loop.</h2>
+    <p class="lead">Each pillar maps to a hackathon track — and together they make a vote that is private, fair, and self-executing. Plain-language first, real technology underneath.</p>
+
+    <div class="grid" style="margin-top:22px;gap:14px">
+      <div class="card pillar">
+        <div class="ibadge"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.4-3 7.3-7 8.5C8 21.3 5 18.4 5 14V6l7-3z"/><rect x="9" y="11" width="6" height="5" rx="1"/><path d="M10.5 11V9.5a1.5 1.5 0 0 1 3 0V11"/></svg></div>
+        <div style="flex:1">
+          <div style="display:flex;align-items:center;gap:10px"><span class="num">PILLAR 01</span><span class="chip"><span class="d"></span>Hack Privacy</span></div>
+          <h3 style="margin-top:6px">Private, sealed voting</h3>
+          <p class="plain">Like a sealed ballot box the organizers themselves can't peek into — and no one can see who's winning until the timer hits zero. Identity, choice, and voting weight all stay hidden.</p>
+          <p class="tech"><b>Under the hood:</b> Groth16 zk-SNARKs verified <b>on-chain</b> (BLS12-381) · nullifiers stop double-voting · <b>drand timelock</b> encryption seals the tally until close.</p>
+        </div>
+      </div>
+
+      <div class="card pillar">
+        <div class="ibadge cy"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="7" width="16" height="12" rx="3"/><circle cx="9" cy="13" r="1.2"/><circle cx="15" cy="13" r="1.2"/><path d="M12 7V4M8 4h8M4 13H2M22 13h-2"/></svg></div>
+        <div style="flex:1">
+          <div style="display:flex;align-items:center;gap:10px"><span class="num">PILLAR 02</span><span class="chip"><span class="d cy"></span>Hack Agentic</span></div>
+          <h3 style="margin-top:6px">Autonomous agent execution</h3>
+          <p class="plain">The community decides; a tireless robot treasurer carries it out the instant voting closes — picking the best way to execute within the approved budget. No multisig phone-tree at 3am.</p>
+          <p class="tech"><b>Under the hood:</b> LLM-planned (Google <b>Gemini</b>) slippage / routing / timing · <b>session-key</b> signing · pays per-call for live market data via <b>x402</b>.</p>
+        </div>
+      </div>
+
+      <div class="card pillar">
+        <div class="ibadge gd"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="9" rx="2"/><path d="M7.5 11V8a4.5 4.5 0 0 1 9 0v3"/><path d="M9.5 15.5l1.6 1.6 3-3.2"/></svg></div>
+        <div style="flex:1">
+          <div style="display:flex;align-items:center;gap:10px"><span class="num">PILLAR 03</span><span class="chip"><span class="d gd"></span>The Safety Lock</span></div>
+          <h3 style="margin-top:6px">The math lock</h3>
+          <p class="plain">Even if the AI hallucinates or goes rogue, the blockchain itself <b style="color:var(--ink)">refuses</b> any move the community didn't approve — wrong amount, wrong target, wrong asset, or a vote that never passed.</p>
+          <p class="tech"><b>Under the hood:</b> an OpenZeppelin <b>Smart Account</b> policy enforces approved + capped + single-shot + correct target/asset on every transaction.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span><span class="dot">◆</span> ShadowKit · The Solution</span><span>04</span></div>
+</section>
+
+<!-- ============ PAGE 5 · HERO LOOP (DEMO STORY) ============ -->
+<section class="page">
+  <div class="inner">
+    <div class="sec-head"><span class="sec-num">04</span><span class="eyebrow cy">The Demo Story · "Hero Loop"</span></div>
+    <h2 class="h2">One proposal, start to finish.</h2>
+    <p class="lead" style="max-width:160mm">The exact flow that runs live in the demo — the narrative spine for a pitch deck. A treasury proposal goes from a private vote to a fully autonomous on-chain swap, with no human ever touching the execution.</p>
+
+    <div class="steps">
+      <div class="step"><div class="num">1</div><div class="sc"><h4><svg class="si" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 11a3 3 0 1 0-3-3"/><path d="M6 20c0-3 2.7-5 6-5s6 2 6 5"/></svg>Connect</h4><p>A member signs in with a <b style="color:var(--body)">passkey</b> — no seed phrase, no extension friction. Face or fingerprint, done.</p></div></div>
+
+      <div class="step"><div class="num">2</div><div class="sc"><h4><svg class="si" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>Proposal goes live</h4><p><span class="mono" style="color:var(--cyan)">"Swap 15,000 USDC → XLM"</span> opens with a voting deadline. A countdown starts ticking.</p></div></div>
+
+      <div class="step"><div class="num">3</div><div class="sc"><h4><svg class="si" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.4-3 7.3-7 8.5C8 21.3 5 18.4 5 14V6z"/><path d="M9.5 12l1.7 1.7 3.3-3.5"/></svg>Private vote</h4><p>In the browser, a <b style="color:var(--body)">zero-knowledge proof</b> is built and the vote is <b style="color:var(--body)">timelock-encrypted</b> to the deadline. Choice and weight never leak.</p></div></div>
+
+      <div class="step"><div class="num">4</div><div class="sc"><h4><svg class="si" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/><path d="M12 14v2"/></svg>Sealed on-chain</h4><p>The contract verifies each proof and stores the sealed vote. The UI shows only <span class="mono" style="color:var(--muted)">"N votes cast · results hidden"</span> + countdown. <b style="color:var(--body)">No one can see who's winning.</b></p></div></div>
+
+      <div class="step"><div class="num">5</div><div class="sc"><h4><svg class="si" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 7.5-1.8"/><path d="M12 14v2"/><path d="M18 4l1 1.6 1.8.3-1.3 1.3.3 1.8L18 8.2 16.4 9l.3-1.8L15.4 6l1.8-.3z" fill="currentColor" stroke="none"/></svg>Reveal at the deadline</h4><p>The <b style="color:var(--body)">drand beacon</b> unlocks the votes. The weighted tally is computed and verified on-chain — the <b style="color:var(--body)">first time anyone</b> sees the result.</p></div></div>
+
+      <div class="step"><div class="num">6</div><div class="sc"><h4><svg class="si" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="7" width="16" height="12" rx="3"/><circle cx="9" cy="13" r="1.1"/><circle cx="15" cy="13" r="1.1"/><path d="M12 7V4"/></svg>The agent acts</h4><p>On quorum, the AI agent buys market data, plans the swap <b style="color:var(--body)">within the approved cap</b>, and signs. The on-chain policy checks every condition before allowing it.</p></div></div>
+
+      <div class="step"><div class="num">7</div><div class="sc"><h4><svg class="si" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.5 2.5L16 9"/></svg>Done — on-chain &amp; live</h4><p>The swap executes on a Stellar DEX; the treasury updates in real time; AgentBoard's terminal streams the agent's reasoning. <b style="color:var(--body)">No human ever approved the transaction.</b></p></div></div>
+    </div>
+  </div>
+  <div class="foot"><span><span class="dot">◆</span> ShadowKit · Demo Story</span><span>05</span></div>
+</section>
+
+<!-- ============ PAGE 6 · WHY IT WINS ============ -->
+<section class="page">
+  <div class="inner">
+    <div class="sec-head"><span class="sec-num">05</span><span class="eyebrow gd">Why It Wins</span></div>
+    <h2 class="h2">The only one that does all three.</h2>
+    <p class="lead">Privacy projects stop at hiding votes. Agent projects stop at "the agent does stuff." ShadowKit is the rare build that <b style="color:var(--ink)">fuses sealed-until-close privacy, autonomous execution, and an on-chain spend lock</b> into a single loop — which is exactly why it targets three prize tracks at once.</p>
+
+    <div class="grid g2" style="margin-top:22px">
+      <div class="card">
+        <div class="ibadge"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l2.4 5 5.6.8-4 4 1 5.6L12 19l-5 2.4 1-5.6-4-4 5.6-.8z"/></svg></div>
+        <h3 style="margin-top:12px">A triple-track play</h3>
+        <p class="plain">Engineered to satisfy <b style="color:var(--ink)">Main + Hack Agentic + Hack Privacy</b> simultaneously — one coherent product, three judging rubrics.</p>
+      </div>
+      <div class="card">
+        <div class="ibadge cy"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18M5 8l7-5 7 5M5 8v8l7 5 7-5V8"/></svg></div>
+        <h3 style="margin-top:12px">Trust math, not middlemen</h3>
+        <p class="plain">No operator can peek at the tally. No human can mis-execute the result. The guarantees are <b style="color:var(--ink)">enforced by the chain</b>, not by policy or promise.</p>
+      </div>
+      <div class="card">
+        <div class="ibadge gr"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
+        <h3 style="margin-top:12px">Built for Stellar's strengths</h3>
+        <p class="plain">On-chain ZK (BLS12-381), <b style="color:var(--ink)">~zero fees</b> for per-call agent payments, fast finality, native USDC/XLM, and first-class custom-account auth.</p>
+      </div>
+      <div class="card">
+        <div class="ibadge gd"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M7 20h10M8 8h5M8 12h8"/></svg></div>
+        <h3 style="margin-top:12px">Infrastructure, not a one-off</h3>
+        <p class="plain">Ships as an <b style="color:var(--ink)">SDK + middleware</b> any Stellar DAO can adopt. ShadowDAO is the demo; the product is the toolkit beneath it.</p>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:20px;background:linear-gradient(135deg,rgba(246,196,83,.08),rgba(139,124,255,.06));border-color:rgba(246,196,83,.25)">
+      <div class="eyebrow gd">The one-line wedge</div>
+      <p style="font-family:var(--fdisp);font-size:17px;line-height:1.36;color:var(--ink);margin-top:9px;font-weight:500">
+        "Private voting is common. Autonomous agents are trendy. <span class="gold">ShadowKit is the first to make a sealed, private vote trigger an autonomous action that the blockchain itself guarantees can't go wrong.</span>"
+      </p>
+    </div>
+  </div>
+  <div class="foot"><span><span class="dot">◆</span> ShadowKit · Why It Wins</span><span>06</span></div>
+</section>
+
+<!-- ============ PAGE 7 · PERSONAS ============ -->
+<section class="page">
+  <div class="inner">
+    <div class="sec-head"><span class="sec-num">06</span><span class="eyebrow">Who It's For</span></div>
+    <h2 class="h2">Four audiences, four messages.</h2>
+    <p class="lead">Who we're talking to — and the one line that lands for each. Use these to shape captions, deck slides, and outreach.</p>
+
+    <div class="grid g2" style="margin-top:20px">
+      <div class="card persona">
+        <h3><span class="ibadge" style="width:34px;height:34px;border-radius:9px"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px"><path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-6h6v6"/></svg></span>The DAO operator</h3>
+        <div class="role">Treasury steward · core team</div>
+        <p class="pain">Runs a community treasury. Tired of governance theater and chasing multisig signers to act on decisions already made.</p>
+        <div class="say"><b>Say to them</b>Set the rules once; let private votes drive autonomous, bounded execution — no more 3am signing.</div>
+      </div>
+
+      <div class="card persona">
+        <h3><span class="ibadge cy" style="width:34px;height:34px;border-radius:9px"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px"><path d="M8 6l-5 6 5 6M16 6l5 6-5 6"/></svg></span>The Soroban builder</h3>
+        <div class="role">Stellar dev · integrator</div>
+        <p class="pain">Wants private, autonomous governance in their app — but building ZK and agent safety from scratch is a months-long detour.</p>
+        <div class="say"><b>Say to them</b>Drop-in ZK + agent governance infrastructure. The hard cryptography is already done — you ship features.</div>
+      </div>
+
+      <div class="card persona">
+        <h3><span class="ibadge gd" style="width:34px;height:34px;border-radius:9px"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px"><path d="M12 11a3 3 0 1 0-3-3"/><path d="M6 20c0-3 2.7-5 6-5s6 2 6 5"/></svg></span>The private voter</h3>
+        <div class="role">Member · whale · token holder</div>
+        <p class="pain">Won't vote because casting a ballot exposes their holdings and position to the whole market.</p>
+        <div class="say"><b>Say to them</b>Vote your conscience and your full weight — provably private, provably counted, impossible to front-run.</div>
+      </div>
+
+      <div class="card persona">
+        <h3><span class="ibadge gr" style="width:34px;height:34px;border-radius:9px"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px"><path d="M12 2l2.4 5 5.6.8-4 4 1 5.6L12 19l-5 2.4 1-5.6-4-4 5.6-.8z"/></svg></span>The evaluator</h3>
+        <div class="role">Judge · press · ecosystem</div>
+        <p class="pain">Sees dozens of demos. Wants something that works end-to-end and pushes the ecosystem forward, not a slide-deck promise.</p>
+        <div class="say"><b>Say to them</b>A working, live hero loop that advances privacy and agentic execution on Stellar at the same time.</div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span><span class="dot">◆</span> ShadowKit · Who It's For</span><span>07</span></div>
+</section>
+
+<!-- ============ PAGE 8 · MESSAGING ============ -->
+<section class="page">
+  <div class="inner">
+    <div class="sec-head"><span class="sec-num">07</span><span class="eyebrow">Messaging Kit</span></div>
+    <h2 class="h2">Taglines &amp; key messages.</h2>
+
+    <div class="card" style="margin-top:18px;background:linear-gradient(135deg,rgba(139,124,255,.12),rgba(61,224,230,.06))">
+      <div class="eyebrow">Primary tagline</div>
+      <p class="tag-primary" style="margin-top:10px"><span class="grad-text">Vote in the shadows. Execute in the light.</span></p>
+    </div>
+
+    <div class="grid g2" style="margin-top:18px;align-items:start">
+      <div>
+        <div class="eyebrow cy">Alternates</div>
+        <div class="tag-list">
+          <div class="t"><span class="n">A</span>Private votes. Autonomous execution. Zero middlemen.</div>
+          <div class="t"><span class="n">B</span>Sealed until close. Executed without you.</div>
+          <div class="t"><span class="n">C</span>Govern in private. Act on-chain. Trust the math.</div>
+          <div class="t"><span class="n">D</span>The vote stays secret. The agent does the rest.</div>
+        </div>
+      </div>
+      <div>
+        <div class="eyebrow gd">Core value props <span class="faint">(repeatable lines)</span></div>
+        <ul class="clean" style="margin-top:12px">
+          <li><b>Truly private —</b> who, how, and how much, all hidden by zero-knowledge proofs.</li>
+          <li><b>Sealed until close —</b> no running tally, so whales can't time or swing it.</li>
+          <li><b>Self-executing —</b> an autonomous agent acts the moment voting ends.</li>
+          <li><b>Mathematically safe —</b> the chain blocks any move the vote didn't approve.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="grid g2" style="margin-top:18px;align-items:start">
+      <div class="card">
+        <div class="eyebrow">Elevator — short</div>
+        <p class="pitch" style="margin-top:9px">ShadowKit lets a DAO <b>vote in total privacy</b> — who, how, and how much, all hidden, the tally sealed until close — then an <b>autonomous AI agent executes the decision</b> on Stellar, unable to misspend a cent.</p>
+      </div>
+      <div class="card">
+        <div class="eyebrow">Boilerplate "About"</div>
+        <p class="pitch" style="margin-top:9px">ShadowKit is zero-knowledge, AI-agent governance infrastructure for Stellar. Members vote privately with the result sealed until the deadline; an autonomous agent then executes the outcome on-chain, bounded by a policy enforced by the blockchain itself. Built at Build On Stellar, IBW 2026.</p>
+      </div>
+    </div>
+
+    <div class="saynot" style="margin-top:16px">
+      <div class="col do">
+        <h4>Say this</h4>
+        <ul>
+          <li>"Private &amp; <b style="color:var(--ink)">sealed-until-close</b>" — the unique angle</li>
+          <li>"<b style="color:var(--ink)">Autonomous</b> agent, <b style="color:var(--ink)">on-chain</b> safety lock"</li>
+          <li>"Infrastructure for <b style="color:var(--ink)">any</b> Stellar DAO"</li>
+          <li>"Math, not middlemen"</li>
+        </ul>
+      </div>
+      <div class="col dont">
+        <h4>Avoid</h4>
+        <ul>
+          <li>Claiming production-grade / audited security <span class="faint">(it's a prototype)</span></li>
+          <li>"Just private voting" — it buries the agent</li>
+          <li>Heavy jargon (Groth16, nullifiers) in <b style="color:var(--ink)">headlines</b></li>
+          <li>Generic "blockchain voting app" framing</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span><span class="dot">◆</span> ShadowKit · Messaging</span><span>08</span></div>
+</section>
+
+<!-- ============ PAGE 9 · BRAND & VISUAL DIRECTION ============ -->
+<section class="page">
+  <div class="inner">
+    <div class="sec-head"><span class="sec-num">08</span><span class="eyebrow cy">Brand &amp; Visual Direction</span></div>
+    <h2 class="h2">A starting point — your instincts lead.</h2>
+    <p class="lead" style="max-width:165mm">The name, mood, palette, and marks below are a springboard, not a spec. They capture the feeling; you make it sing.</p>
+
+    <div class="grid g2" style="margin-top:18px;align-items:start">
+      <div class="card">
+        <div class="eyebrow">Name &amp; meaning</div>
+        <p class="plain" style="margin-top:9px"><b style="color:var(--ink)">Shadow</b> = privacy, the unseen, votes cast in the dark. <b style="color:var(--ink)">Kit</b> = a developer toolkit, infrastructure you build with. The product's whole arc is <span class="accent">shadow → light</span>: sealed, then revealed and executed.</p>
+      </div>
+      <div class="card">
+        <div class="eyebrow gd">Mood / keywords</div>
+        <div style="display:flex;flex-wrap:wrap;gap:7px;margin-top:11px">
+          <span class="chip"><span class="d"></span>Cryptographic</span><span class="chip"><span class="d gd"></span>Sealed</span>
+          <span class="chip"><span class="d cy"></span>Autonomous</span><span class="chip"><span class="d gr"></span>Trustless</span>
+          <span class="chip"><span class="d"></span>Quiet power</span><span class="chip"><span class="d cy"></span>Night-mode</span>
+          <span class="chip"><span class="d gd"></span>Precise</span><span class="chip"><span class="d"></span>Premium</span>
+        </div>
+      </div>
+    </div>
+
+    <div style="margin-top:18px" class="eyebrow">Palette</div>
+    <div class="swatches">
+      <div class="sw"><div class="chipc" style="background:#0B0B12"></div><div class="meta"><div class="nm">Void</div><div class="hex">#0B0B12</div><div class="role">Base / canvas</div></div></div>
+      <div class="sw"><div class="chipc" style="background:#8B7CFF"></div><div class="meta"><div class="nm">Veil Violet</div><div class="hex">#8B7CFF</div><div class="role">Primary / privacy</div></div></div>
+      <div class="sw"><div class="chipc" style="background:#3DE0E6"></div><div class="meta"><div class="nm">Signal Cyan</div><div class="hex">#3DE0E6</div><div class="role">Agent / tech</div></div></div>
+      <div class="sw"><div class="chipc" style="background:#F6C453"></div><div class="meta"><div class="nm">Reveal Gold</div><div class="hex">#F6C453</div><div class="role">The unseal moment</div></div></div>
+    </div>
+    <div class="swatches" style="margin-top:10px">
+      <div class="sw"><div class="chipc" style="background:#15161F"></div><div class="meta"><div class="nm">Slate</div><div class="hex">#15161F</div><div class="role">Surface / cards</div></div></div>
+      <div class="sw"><div class="chipc" style="background:#56D98A"></div><div class="meta"><div class="nm">On-chain Green</div><div class="hex">#56D98A</div><div class="role">Success / executed</div></div></div>
+      <div class="sw"><div class="chipc" style="background:#9093A8"></div><div class="meta"><div class="nm">Mist</div><div class="hex">#9093A8</div><div class="role">Muted text</div></div></div>
+      <div class="sw"><div class="chipc" style="background:linear-gradient(135deg,#8B7CFF,#3DE0E6)"></div><div class="meta"><div class="nm">Reveal Gradient</div><div class="hex">violet → cyan</div><div class="role">Hero accents</div></div></div>
+    </div>
+
+    <div class="grid g2" style="margin-top:18px;align-items:start">
+      <div>
+        <div class="eyebrow">Typography</div>
+        <div class="type-demo" style="margin-top:10px">
+          <div class="type-card"><div class="big">Aa</div><div class="nm">Space Grotesk</div><div class="role">Display, headlines, UI</div><div class="alpha">ABCDEFG · 0123456789</div></div>
+          <div class="type-card"><div class="big m">A0</div><div class="nm">Mono — Hack / JetBrains</div><div class="role">Crypto accents, code, hashes</div><div class="alpha mono">0xnull1f1er · zk·proof</div></div>
+        </div>
+      </div>
+      <div>
+        <div class="eyebrow">Logo concepts <span class="faint">(refine freely)</span></div>
+        <div class="concepts">
+          <div class="concept">
+            <svg viewBox="0 0 128 128" fill="none"><path d="M44 16 H84 L112 44 V84 L84 112 H44 L16 84 V44 Z" stroke="url(#g1)" stroke-width="4"/><circle cx="64" cy="57" r="10" stroke="url(#g1)" stroke-width="4"/><path d="M64 67 V86" stroke="url(#g1)" stroke-width="4" stroke-linecap="round"/><circle cx="100" cy="28" r="5" fill="#F6C453"/></svg>
+            <div class="cn">The Seal</div><div class="cd">Keyhole + reveal spark</div>
+          </div>
+          <div class="concept">
+            <svg viewBox="0 0 128 128" fill="none"><path d="M64 20 L104 42 V86 L64 108 L24 86 V42 Z" stroke="url(#g1)" stroke-width="4"/><path d="M40 64 Q64 44 88 64 Q64 84 40 64 Z" stroke="url(#g1)" stroke-width="4"/><circle cx="64" cy="64" r="6" fill="#3DE0E6"/><path d="M34 74 L94 54" stroke="#F6C453" stroke-width="4" stroke-linecap="round"/></svg>
+            <div class="cn">The Veiled Eye</div><div class="cd">Private by default</div>
+          </div>
+          <div class="concept">
+            <svg viewBox="0 0 128 128" fill="none"><rect x="20" y="20" width="88" height="88" rx="24" fill="url(#g1)"/><text x="64" y="84" font-family="Space Grotesk, sans-serif" font-size="50" font-weight="700" fill="#0B0B12" text-anchor="middle" letter-spacing="-1">SK</text></svg>
+            <div class="cn">SK Monogram</div><div class="cd">App-icon lockup</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span><span class="dot">◆</span> ShadowKit · Brand Direction</span><span>09</span></div>
+</section>
+
+<!-- ============ PAGE 10 · CHEAT SHEET ============ -->
+<section class="page">
+  <div class="inner">
+    <div class="sec-head"><span class="sec-num">09</span><span class="eyebrow gr">Cheat Sheet</span></div>
+    <h2 class="h2">Plain-language glossary &amp; fast facts.</h2>
+    <p class="lead">So you're never lost in a technical conversation. Everything you need to speak about ShadowKit with confidence.</p>
+
+    <div style="margin-top:18px" class="eyebrow cy">Glossary</div>
+    <div class="gloss" style="margin-top:11px">
+      <div class="gl"><div class="term">Zero-knowledge proof (ZK)</div><div class="def">Prove something is true without revealing the secret — e.g. "I'm eligible and my vote is valid" without showing who you are or how you voted.</div></div>
+      <div class="gl"><div class="term">Timelock encryption</div><div class="def">A digital lock that can only be opened after a set time. Used to seal the vote tally until the deadline.</div></div>
+      <div class="gl"><div class="term">Nullifier</div><div class="def">A one-time anonymous "I voted" token that prevents double-voting without revealing who voted.</div></div>
+      <div class="gl"><div class="term">Quorum</div><div class="def">The minimum participation and agreement needed for a proposal to officially pass.</div></div>
+      <div class="gl"><div class="term">Soroban</div><div class="def">Stellar's smart-contract platform — the on-chain programs that enforce the rules.</div></div>
+      <div class="gl"><div class="term">The agent</div><div class="def">An AI program that executes the approved decision on-chain, strictly bounded by policy.</div></div>
+      <div class="gl"><div class="term">Smart-account policy</div><div class="def">The on-chain rulebook that mathematically limits what the agent is allowed to spend.</div></div>
+      <div class="gl"><div class="term">x402</div><div class="def">A protocol for tiny pay-per-call payments — how the agent buys live market data.</div></div>
+    </div>
+
+    <div style="margin-top:18px" class="eyebrow gd">Fast facts</div>
+    <div class="facts">
+      <div class="fact"><div class="k">What</div><div class="v">ZK + AI-agent governance infrastructure (SDK / middleware)</div></div>
+      <div class="fact"><div class="k">Chain</div><div class="v">Stellar · Soroban smart contracts</div></div>
+      <div class="fact"><div class="k">Demo</div><div class="v">ShadowDAO — live vote → reveal → autonomous swap</div></div>
+      <div class="fact"><div class="k">Event</div><div class="v">Build On Stellar · IBW 2026 · Istanbul · 36h</div></div>
+      <div class="fact"><div class="k">Tracks</div><div class="v">Main + Hack Agentic + Hack Privacy</div></div>
+      <div class="fact"><div class="k">Stack</div><div class="v">TypeScript + Rust · Circom/snarkjs · drand · Gemini</div></div>
+      <div class="fact"><div class="k">Status</div><div class="v">Hero loop runs live; privacy &amp; timelock layers landing</div></div>
+      <div class="fact"><div class="k">Frontend</div><div class="v">AgentBoard — voting UI + live agent terminal</div></div>
+    </div>
+
+    <div class="note">
+      <b>How to use this brief:</b> &nbsp;Everything here is a foundation, not a fence. The strategy, the angles, and the words are yours to reshape — lean on the privacy → reveal → autonomy story, keep the tone premium and confident, and let the design carry the "quiet power" of something that works without anyone watching.
+    </div>
+  </div>
+  <div class="foot"><span><span class="dot">◆</span> ShadowKit · Cheat Sheet</span><span>10</span></div>
+</section>
+
+</body>
+</html>
