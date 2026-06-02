@@ -1,6 +1,12 @@
 // contracts/gov-vault/src/reveal.rs
-use soroban_sdk::{panic_with_error, Env, Vec};
+use soroban_sdk::Env;
+// PRIMARY-path re-aggregation imports (cfg'd out under the coordinator-reveal D6 fallback, which
+// trusts the asserted aggregate and never re-aggregates per-vote decryptions).
+#[cfg(not(feature = "coordinator-reveal"))]
+use soroban_sdk::{panic_with_error, Vec};
+#[cfg(not(feature = "coordinator-reveal"))]
 use shadowkit_shared::{SealedVote, VoteDecryption};
+#[cfg(not(feature = "coordinator-reveal"))]
 use crate::GovError;
 
 /// Re-aggregate submitted decryptions against stored sealed votes (foundation §2.2).
@@ -8,6 +14,9 @@ use crate::GovError;
 ///
 /// Four integrity guards, each introduced red-before-green in C5a..C5d:
 ///  C5a length match, C5b per-vote commitment binding, C5c direction-bit, C5d claimed-aggregate match.
+/// PRIMARY path only: the `coordinator-reveal` D6 fallback trusts the asserted aggregate (no
+/// re-aggregation), so this is cfg'd out there (and `coordinator_accept` below takes its place).
+#[cfg(not(feature = "coordinator-reveal"))]
 pub fn reaggregate(
     env: &Env,
     sealed: &Vec<SealedVote>,

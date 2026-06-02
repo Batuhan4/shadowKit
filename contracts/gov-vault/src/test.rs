@@ -507,6 +507,13 @@ fn close_and_reveal_correct_sets_weighted_tally_and_approves() {
 // ============================================================================
 // Tasks C5a–C5d — close_and_reveal rejects a WRONG reveal (each guard red-before-green)
 // ============================================================================
+// These four guards are PRIMARY-path (on-chain re-aggregation) specific: they assert RevealMismatch
+// from reveal::reaggregate. Under the `coordinator-reveal` D6 fallback the chain DELIBERATELY does not
+// re-aggregate (it trusts the admin-asserted aggregate — spec §12/§13.3), so these reject-paths do not
+// exist there. Gated to the non-coordinator-reveal build (same pattern as the offchain-verify split).
+#[cfg(not(feature = "coordinator-reveal"))]
+mod primary_reveal_guards {
+use super::*;
 
 /// Deploy + 3 stored sealed votes (B1/B2/B3) + ledger past the deadline. Returns (id, h0, h1, h2).
 fn setup_revealable(env: &Env, gov: &GovVaultClient) -> (u32, BytesN<32>, BytesN<32>, BytesN<32>) {
@@ -576,6 +583,8 @@ fn reveal_lying_aggregate_rejected() {
     let r = gov.try_close_and_reveal(&id, &999i128, &50i128, &decs);
     assert_eq!(r, Err(Ok(GovError::RevealMismatch)));
 }
+
+} // mod primary_reveal_guards
 
 // ============================================================================
 // Tasks C6a–C6b — full weighted quorum (min-voters) + double-reveal guard

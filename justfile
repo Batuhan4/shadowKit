@@ -57,11 +57,23 @@ test-agent:
 test-llm-live:
     RUN_LIVE_LLM=1 npx vitest run agent/test/geminiPlanner.live.test.ts
 
-# fallback feature paths (foundation §7.2). In M0 these crates are stubs with no such features yet,
-# so the recipe builds them WITHOUT the flags; the flagged variants are added by M2 (handrolled)
-# and M4 (offchain-verify). Kept here as named recipes so later milestones only fill the body.
-test-contracts-fallbacks:
-    @echo "fallback feature suites land in M2 (handrolled) / M4 (offchain-verify)"
+# fallback feature paths (foundation §7.2). M0 stubbed this; M5 fills the body — it now runs the
+# gov-vault feature-flag fallback suites (charter rule 3 "fallbacks must be tested too").
+test-contracts-fallbacks: test-fallbacks
+
+# ---- M5: full fallback matrix — EVERY feature-flag suite green in ONE command (charter rule 3) ----
+# PRIMARY paths run under `just test` (default features); these are the FALLBACK builds:
+#  - gov-vault offchain-verify   : trust coordinator-asserted proof validity (foundation §2.1)
+#  - gov-vault circuit-min       : degraded membership+nullifier 1p1v circuit (spec §13.2)
+#  - gov-vault coordinator-reveal: trust coordinator-asserted aggregate at close (D6, spec §12/§13.3)
+#  - agent-policy handrolled     : hand-rolled AgentPolicy fallback (M2)
+# The off-chain TS fallbacks (coordinator commit-reveal, weight-unlinked/1p1v, REVEAL_MODE selector)
+# run inside `just test-ts` (npx vitest run covers packages/tally-reveal).
+test-fallbacks:
+    cargo test -p gov-vault --features offchain-verify
+    cargo test -p gov-vault --features circuit-min
+    cargo test -p gov-vault --features coordinator-reveal
+    cargo test --workspace --features handrolled
 
 test-ts:
     npx vitest run
