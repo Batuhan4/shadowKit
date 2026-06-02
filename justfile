@@ -32,10 +32,24 @@ web-build:
     npm run build --workspace web
 
 # ---- test (the single entrypoint — foundation §7.2) ----
-test: test-contracts test-ts circuit-test
+# M2 folds the agent-policy fallback (handrolled) suite + the agent middleware/terminal TS suite into
+# the umbrella target. `test-ts` (npx vitest run) already runs agent/test + web/test, so test-agent is
+# the explicitly-named M2 subset; we keep both for discoverability without double-running the whole
+# suite (test depends on test-ts which is the superset; test-policy-handrolled adds the fallback cfg).
+test: test-contracts test-policy-handrolled test-ts circuit-test
 
 test-contracts:
     cargo test --workspace
+
+# ---- M2: AgentPolicy primary (OZ policy) + fallback (hand-rolled) + agent middleware/terminal ----
+test-policy:
+    cargo test -p agent-policy
+
+test-policy-handrolled:
+    cargo test -p agent-policy --features handrolled
+
+test-agent:
+    npx vitest run agent/test web/test/AgentBoardTerminal.test.tsx
 
 # fallback feature paths (foundation §7.2). In M0 these crates are stubs with no such features yet,
 # so the recipe builds them WITHOUT the flags; the flagged variants are added by M2 (handrolled)
@@ -68,3 +82,11 @@ deploy-testnet:
 e2e: net-up
     STELLAR_NETWORK=local ./scripts/deploy-local.sh
     stellar contract invoke --id hello_world --source-account "${STELLAR_DEPLOYER:-shadowkit-deployer}" --network local -- hello --to RPC
+
+# ---- HERO LOOP (M2-16): full vote -> approve -> agent-swap -> balances-move, on the LIVE local net.
+# "Demo never dies" — runnable repeatedly. scripts/e2e-hero.sh net-ups, deploys, creates+votes+closes a
+# proposal, runs the REAL agent middleware (DeterministicPlanner -> Executor -> on-chain FallbackAMM
+# swap), then asserts the treasury's on-chain USDC/WXLM balances MOVED and the proposal is Executed.
+# Exits non-zero on any mismatch. Required (not optional) when Docker is present.
+e2e-hero:
+    bash scripts/e2e-hero.sh

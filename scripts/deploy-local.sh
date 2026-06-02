@@ -104,6 +104,25 @@ echo "[deploy] gov_vault contract id: ${GOV_VAULT_ID}"
 # Treasury asset = the USDC SAC on local; on testnet resolve the canonical USDC SAC at M6.
 TREASURY_ASSET="${USDC_SAC:-${XLM_SAC:-}}"
 
+# ---- hero-loop voters (M2-16): 3 eligible voters with weight so a proposal can pass quorum on close.
+# Created + funded here and baked into gov-vault's init vote_weights so `just e2e-hero` can cast REAL
+# weighted yes-votes. On testnet (no friendbot mint setup) the weights default to empty.
+VOTE_WEIGHTS='{}'
+if [ "${NET}" = "local" ]; then
+  echo "[deploy] preparing 3 hero voters (weight 10 each)..."
+  V1_ADDR=""; V2_ADDR=""; V3_ADDR=""
+  for n in 1 2 3; do
+    stellar keys generate "shadowkit-voter${n}" --network "${NET}" --fund \
+      || echo "[deploy] voter${n} identity already exists (continuing)"
+    addr="$(stellar keys address "shadowkit-voter${n}")"
+    curl --silent --show-error -X POST "${FRIENDBOT_URL}?addr=${addr}" >/dev/null 2>&1 || true
+    eval "V${n}_ADDR=\"${addr}\""
+  done
+  # i128 weights MUST be JSON strings (stellar 26.1.0: numeric i128 in a map is rejected).
+  VOTE_WEIGHTS="{\"${V1_ADDR}\":\"10\",\"${V2_ADDR}\":\"10\",\"${V3_ADDR}\":\"10\"}"
+  echo "[deploy] voters: ${V1_ADDR} ${V2_ADDR} ${V3_ADDR}"
+fi
+
 # init gov-vault (idempotent: a second init returns GovError::AlreadyInitialized, which we tolerate).
 echo "[deploy] init gov-vault (admin=${DEPLOYER_ADDR}, treasury_asset=${TREASURY_ASSET})..."
 stellar contract invoke \
@@ -114,7 +133,7 @@ stellar contract invoke \
   --admin "${DEPLOYER_ADDR}" \
   --treasury_asset "${TREASURY_ASSET}" \
   --quorum_cfg '{ "min_voters": 3, "yes_must_exceed_no": true }' \
-  --vote_weights '{}' \
+  --vote_weights "${VOTE_WEIGHTS}" \
   || echo "[deploy] gov-vault already initialized (continuing)"
 
 # set_executor (Task M2-0c): authorize the AgentPolicy smart-account wallet to call mark_executed.
@@ -149,6 +168,135 @@ if [ -f "${GEN_INDEX}" ]; then
                 s/^  MethodOptions,$/  type MethodOptions,/m;
                 s/^  Result,$/  type Result,/m;' "${GEN_INDEX}"
   echo "[deploy] normalized generated bindings imports for verbatimModuleSyntax"
+fi
+
+# ===========================================================================
+# M2 (Task M2-15) — AgentPolicy + treasury smart-account wallet + FallbackAMM venue.
+# Deploys the policy-gated treasury stack the hero loop (Task M2-16 `just e2e-hero`) drives:
+#   * FallbackAMM (the approved swap venue) + seeded USDC/WXLM liquidity
+#   * AgentPolicy (the OZ Smart Account custom policy contract)
+#   * a treasury wallet identity (the session/agent account that holds USDC and signs the swap)
+#   * set_executor -> treasury (so the treasury may call gov-vault.mark_executed; foundation §2.2)
+# All ids are appended to .env.local so `just e2e-hero` consumes a single source of truth.
+#
+# CLEAN-OUTPUT ASSET NOTE: the hero loop's asset_out is a CUSTOM WXLM SAC (NOT native XLM). Native
+# XLM is the fee asset, so a native-XLM treasury balance is dominated by tx fees and cannot show a
+# clean +amount_out delta. A custom WXLM SAC gives a fee-independent balance so the e2e can assert an
+# exact +amount_out on-chain (mirrors the in-Env hero_loop_moves_balances which uses a pure SAC).
+echo "[deploy] ===== M2: AgentPolicy + treasury + FallbackAMM ====="
+
+# Only the LOCAL network supports the full mint/trustline-driven hero treasury setup here; on testnet
+# the custom-asset minting + LP funding is an M6 concern (canonical USDC issuer). Skip the M2 block on
+# testnet (gov-vault/SACs above are still deployed).
+if [ "${NET}" = "local" ]; then
+  # ---- custom WXLM SAC (fee-clean asset_out for the hero swap) ----
+  echo "[deploy] deploying custom WXLM SAC on local (issuer=${DEPLOYER_ADDR})..."
+  WXLM_SAC=$(deploy_or_resolve_sac "WXLM:${DEPLOYER_ADDR}")
+  echo "[deploy] WXLM SAC id: ${WXLM_SAC}"
+
+  # ---- deploy FallbackAMM (the AgentPolicy-approved swap venue) ----
+  AMM_WASM="target/wasm32v1-none/release/fallback_amm.wasm"
+  test -f "${AMM_WASM}" || { echo "[deploy] ERROR: ${AMM_WASM} not found" >&2; exit 1; }
+  echo "[deploy] deploying fallback-amm..."
+  AMM_ID=$(stellar contract deploy \
+    --wasm "${AMM_WASM}" \
+    --source-account "${DEPLOYER}" \
+    --network "${NET}" \
+    --alias fallback_amm)
+  echo "[deploy] fallback_amm contract id: ${AMM_ID}"
+
+  # init the AMM pool (USDC, WXLM). Idempotent: a second init returns AmmError::AlreadyInitialized.
+  stellar contract invoke --id "${AMM_ID}" --source-account "${DEPLOYER}" --network "${NET}" \
+    -- init --asset_a "${USDC_SAC}" --asset_b "${WXLM_SAC}" \
+    >/dev/null 2>&1 || echo "[deploy] fallback-amm already initialized (continuing)"
+
+  # ---- seed liquidity from the deployer (issuer holds infinite USDC; mint WXLM to itself first) ----
+  # The deployer is the USDC + WXLM issuer. The issuer cannot mint to ITSELF (operation invalid on
+  # issuer; the issuer already has an infinite balance and can SEND), so add_liquidity pulls both
+  # assets straight from the issuer's balances. Reserves seeded to 1_000_000 / 1_000_000 once.
+  RES=$(stellar contract invoke --id "${AMM_ID}" --source-account "${DEPLOYER}" --network "${NET}" \
+    -- reserves 2>/dev/null || echo '["0","0"]')
+  case "${RES}" in
+    *'"0","0"'*|'["0","0"]')
+      # Seed a DEEP pool (100M / 100M) so a 10_000-in swap yields ~9_969 out (≈1:1, 0.3% fee + minimal
+      # slippage). This keeps the agent's DeterministicPlanner minOut (price=1, 50bps -> 9_950) BELOW the
+      # realized out so the live swap passes the AMM slippage guard. (A shallow 1M pool would return
+      # ~9_871, under the 9_950 floor, and the swap would revert SlippageExceeded.)
+      echo "[deploy] seeding AMM liquidity (100_000_000 USDC + 100_000_000 WXLM from issuer)..."
+      stellar contract invoke --id "${AMM_ID}" --source-account "${DEPLOYER}" --network "${NET}" \
+        -- add_liquidity --from "${DEPLOYER_ADDR}" --amount_a 100000000 --amount_b 100000000 \
+        >/dev/null 2>&1 || echo "[deploy] add_liquidity returned non-zero (maybe already seeded) — continuing"
+      ;;
+    *) echo "[deploy] AMM already has liquidity (${RES}) — skipping seed" ;;
+  esac
+
+  # ---- deploy the AgentPolicy (OZ Smart Account custom policy) ----
+  AGENT_POLICY_WASM="target/wasm32v1-none/release/agent_policy.wasm"
+  test -f "${AGENT_POLICY_WASM}" || { echo "[deploy] ERROR: ${AGENT_POLICY_WASM} not found" >&2; exit 1; }
+  echo "[deploy] deploying agent-policy (OZ smart-account custom policy)..."
+  AGENT_POLICY_ID=$(stellar contract deploy \
+    --wasm "${AGENT_POLICY_WASM}" \
+    --source-account "${DEPLOYER}" \
+    --network "${NET}" \
+    --alias agent_policy)
+  echo "[deploy] agent_policy contract id: ${AGENT_POLICY_ID}"
+  # NOTE (stellar 26.1.0 CLI drift — documented): `stellar contract invoke` CANNOT call ANY entrypoint
+  # on agent-policy (install / params / probe_cross_read all fail "Missing Entry Context"). The
+  # contract's exported spec references the OZ `Context` UDT (from `Policy::enforce(context: Context,
+  # ..)`), whose nested element type the CLI's spec resolver cannot dereference, so it rejects the
+  # WHOLE contract for invoke. The policy `install` (which seeds AgentPolicyParams into the host) and
+  # the host's session-key-signed `__check_auth` -> `enforce` gating path are therefore driven IN-ENV
+  # (agent-policy unit + integration tests: hero_loop_moves_balances / cross_read_in_enforce_during_auth
+  # / execute_without_quorum_is_blocked), NOT via the live CLI. The deploy above proves the policy WASM
+  # builds + deploys on-chain. See scripts/e2e-hero.sh + the M2 Verification log for the full rationale.
+
+  # ---- treasury wallet identity (the session/agent account holding USDC, signing the hero swap) ----
+  echo "[deploy] ensuring treasury identity '${TREASURY_KEY:-shadowkit-treasury}'..."
+  TREASURY_KEY="${TREASURY_KEY:-shadowkit-treasury}"
+  stellar keys generate "${TREASURY_KEY}" --network "${NET}" --fund \
+    || echo "[deploy] treasury identity ${TREASURY_KEY} already exists (continuing)"
+  TREASURY_ADDR="$(stellar keys address "${TREASURY_KEY}")"
+  curl --silent --show-error -X POST "${FRIENDBOT_URL}?addr=${TREASURY_ADDR}" >/dev/null \
+    || echo "[deploy] treasury friendbot fund non-zero (likely already funded) — continuing"
+  echo "[deploy] treasury wallet address: ${TREASURY_ADDR}"
+
+  # treasury trustlines so it can hold the custom USDC + WXLM SACs (classic accounts need trustlines).
+  stellar tx new change-trust --source-account "${TREASURY_KEY}" --network "${NET}" \
+    --line "USDC:${DEPLOYER_ADDR}" >/dev/null 2>&1 \
+    || echo "[deploy] treasury USDC trustline already exists (continuing)"
+  stellar tx new change-trust --source-account "${TREASURY_KEY}" --network "${NET}" \
+    --line "WXLM:${DEPLOYER_ADDR}" >/dev/null 2>&1 \
+    || echo "[deploy] treasury WXLM trustline already exists (continuing)"
+
+  # ---- re-point gov-vault.set_executor at the treasury wallet (foundation §2.2 mark_executed gate) ----
+  echo "[deploy] set_executor -> treasury ${TREASURY_ADDR} (admin-signed)..."
+  stellar contract invoke --id "${GOV_VAULT_ID}" --source-account "${DEPLOYER}" --network "${NET}" \
+    -- set_executor --executor "${TREASURY_ADDR}" \
+    >/dev/null 2>&1 || echo "[deploy] set_executor(treasury) non-zero — continuing"
+
+  # ---- single source of truth for ids: .env.local (consumed by scripts/e2e-hero.sh) ----
+  ENV_LOCAL=".env.local"
+  echo "[deploy] writing deployed ids to ${ENV_LOCAL}..."
+  {
+    echo "# Auto-generated by scripts/deploy-local.sh — local hero-loop deploy ids (DO NOT COMMIT)."
+    echo "DEPLOYER_ADDR=${DEPLOYER_ADDR}"
+    echo "HELLO_ID=${HELLO_ID}"
+    echo "GOV_VAULT_ID=${GOV_VAULT_ID}"
+    echo "XLM_SAC=${XLM_SAC}"
+    echo "USDC_SAC=${USDC_SAC}"
+    echo "WXLM_SAC=${WXLM_SAC}"
+    echo "AMM_ID=${AMM_ID}"
+    echo "AGENT_POLICY_ID=${AGENT_POLICY_ID}"
+    echo "TREASURY_KEY=${TREASURY_KEY}"
+    echo "TREASURY_ADDR=${TREASURY_ADDR}"
+    echo "V1_ADDR=${V1_ADDR:-}"
+    echo "V2_ADDR=${V2_ADDR:-}"
+    echo "V3_ADDR=${V3_ADDR:-}"
+  } > "${ENV_LOCAL}"
+
+  echo "[deploy] M2 DONE. amm=${AMM_ID} agent_policy=${AGENT_POLICY_ID} treasury=${TREASURY_ADDR} wxlm=${WXLM_SAC}"
+else
+  echo "[deploy] testnet: skipping M2 treasury/AMM/agent-policy block (custom-asset hero setup is local-only; testnet wiring is M6)."
 fi
 
 echo "[deploy] DONE. hello_world=${HELLO_ID} gov_vault=${GOV_VAULT_ID} xlm_sac=${XLM_SAC:-n/a} bindings=${BINDINGS_DIR}"
