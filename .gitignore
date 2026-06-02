@@ -15,8 +15,12 @@ target/
 *.r1cs
 *.zkey
 *.ptau
+*.wtns
 circuits/**/*_js/
 circuits/**/*.sym
+# Circuit build intermediates (ignored; committed fixtures are force-kept below).
+circuits/*/build/
+circuits/*/build-min/
 
 # Env / secrets
 .env
@@ -45,6 +49,18 @@ secrets/
 !circuits/vote/fixtures/*.ptau
 !circuits/vote/fixtures/*.json
 !circuits/vote/fixtures/*.wasm
+
+# Keep committed DEGRADED (fallback-2) fixtures (Task 4.36: vote_min.r1cs/.wasm/_final.zkey/vk/proof).
+!circuits/vote/fixtures-min/
+!circuits/vote/fixtures-min/*.r1cs
+!circuits/vote/fixtures-min/*.zkey
+!circuits/vote/fixtures-min/*.ptau
+!circuits/vote/fixtures-min/*.json
+!circuits/vote/fixtures-min/*.wasm
+
+# Keep the committed FRESH round-trip bundle (Task 4.35: proof.json/public.json/meta.json).
+!circuits/vote/fixtures-fresh/
+!circuits/vote/fixtures-fresh/*
 
 # Keep committed BLS12-381 Poseidon parity helper wasms (M4 §0.1).
 !circuits/poseidon-helpers/fixtures/
