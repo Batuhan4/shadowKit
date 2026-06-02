@@ -493,3 +493,104 @@ fn test_action_of_not_found_panics() {
     init_default(&env, &client, &admin, &usdc);
     assert_eq!(client.try_action_of(&123u32), Err(Ok(GovError::ProposalNotFound)));
 }
+
+// ============================================================================
+// Task 10 — mark_executed single-shot replay guard (+ Task 17 integration tests)
+// ============================================================================
+
+#[test]
+fn test_mark_executed_single_shot() {
+    let (env, client, admin, usdc) = setup();
+    let id = vote_scenario(&env, &client, &admin, &usdc, 3, 0, 2_000);
+    set_time(&env, 2_001);
+    client.close(&id);
+    assert_eq!(client.is_approved(&id), true);
+    client.mark_executed(&id);
+    let view = client.proposal(&id);
+    assert_eq!(view.status, ProposalStatus::Executed);
+    // second call must be rejected (single-shot)
+    assert_eq!(client.try_mark_executed(&id), Err(Ok(GovError::AlreadyExecuted)));
+}
+
+#[test]
+fn test_mark_executed_requires_approved() {
+    let (env, client, admin, usdc) = setup();
+    // rejected proposal (low participation)
+    let id = vote_scenario(&env, &client, &admin, &usdc, 2, 0, 2_000);
+    set_time(&env, 2_001);
+    client.close(&id);
+    assert_eq!(client.is_approved(&id), false);
+    assert_eq!(client.try_mark_executed(&id), Err(Ok(GovError::NotApproved)));
+}
+
+// ---- Task 17: end-to-end integration tests (authored here for a genuine shared red) ----
+
+#[test]
+fn integration_vote_to_approve_flow() {
+    let (env, client, admin, usdc) = setup();
+    // snapshot of 3 eligible voters with distinct weights
+    let v_yes_a = Address::generate(&env);
+    let v_yes_b = Address::generate(&env);
+    let v_no    = Address::generate(&env);
+    let w = weights(&env, &[
+        (v_yes_a.clone(), 30),
+        (v_yes_b.clone(), 25),
+        (v_no.clone(), 40),
+    ]);
+    let cfg = QuorumCfg { min_voters: 3, yes_must_exceed_no: true };
+    env.mock_all_auths();
+    client.init(&admin, &usdc, &cfg, &w);
+    set_time(&env, 1_000);
+
+    let spec = sample_spec(&env);
+    let id = client.create_proposal(&spec, &15_000i128, &2_000u64);
+    assert_eq!(client.proposal(&id).status, ProposalStatus::Open);
+
+    // votes: yes=30+25=55, no=40 ; 3 voters
+    client.cast_vote(&id, &v_yes_a, &1u32);
+    client.cast_vote(&id, &v_yes_b, &1u32);
+    client.cast_vote(&id, &v_no,    &0u32);
+    assert_eq!(client.votes_cast(&id), 3);
+    // NO tally exposed before close (privacy invariant, even in plaintext M1)
+    assert_eq!(client.proposal(&id).weighted_yes, None);
+
+    // close after deadline
+    set_time(&env, 2_001);
+    client.close(&id);
+
+    // real on-chain state: approved, weighted tally set
+    let view = client.proposal(&id);
+    assert_eq!(view.status, ProposalStatus::Approved);
+    assert_eq!(view.weighted_yes, Some(55));
+    assert_eq!(view.weighted_no, Some(40));
+    assert_eq!(client.is_approved(&id), true);
+    assert_eq!(client.cap_of(&id), 15_000);
+    assert_eq!(client.action_of(&id), spec);
+
+    // execute single-shot
+    client.mark_executed(&id);
+    assert_eq!(client.proposal(&id).status, ProposalStatus::Executed);
+    assert_eq!(client.try_mark_executed(&id), Err(Ok(GovError::AlreadyExecuted)));
+}
+
+#[test]
+fn integration_no_quorum_blocks_execution() {
+    let (env, client, admin, usdc) = setup();
+    // only 2 voters -> participation < 3 -> Rejected -> cannot execute
+    let a = Address::generate(&env);
+    let b = Address::generate(&env);
+    let w = weights(&env, &[(a.clone(), 10), (b.clone(), 10)]);
+    let cfg = QuorumCfg { min_voters: 3, yes_must_exceed_no: true };
+    env.mock_all_auths();
+    client.init(&admin, &usdc, &cfg, &w);
+    set_time(&env, 1_000);
+    let spec = sample_spec(&env);
+    let id = client.create_proposal(&spec, &15_000i128, &2_000u64);
+    client.cast_vote(&id, &a, &1u32);
+    client.cast_vote(&id, &b, &1u32);
+    set_time(&env, 2_001);
+    client.close(&id);
+    assert_eq!(client.is_approved(&id), false);
+    // execution blocked on-chain
+    assert_eq!(client.try_mark_executed(&id), Err(Ok(GovError::NotApproved)));
+}

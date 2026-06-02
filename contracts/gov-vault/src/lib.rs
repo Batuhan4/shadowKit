@@ -54,6 +54,10 @@ pub struct VoteCast { #[topic] pub id: u32, pub nullifier: BytesN<32> } // no di
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProposalClosed { #[topic] pub id: u32, pub approved: bool, pub weighted_yes: i128, pub weighted_no: i128 }
 
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProposalExecuted { #[topic] pub id: u32 }
+
 #[contractimpl]
 impl GovVault {
     /// Initialize once. `vote_weights` is the M1 plaintext snapshot (voter -> token weight).
@@ -235,5 +239,27 @@ impl GovVault {
             Some(rec) => Ok(rec.action_spec),
             None => Err(GovError::ProposalNotFound),
         }
+    }
+
+    /// Single-shot replay guard. Requires status==Approved & not executed. Sets status -> Executed.
+    /// M1: callable by anyone (NO auth). The foundation §2.2 auth tightening — `require_auth` on the
+    /// configured executor (AgentPolicy address) stored at `DataKey::Executor` — is implemented in M2
+    /// (Task M2-0c: `set_executor` + the `require_auth` gate + a non-executor-rejected negative test).
+    /// M1 does NOT leave this open by oversight; M2 OWNS the gate (recorded handoff).
+    /// CARRY-FORWARD: returns Result<(), GovError> (NOT panic_with_error!) so the charter's
+    /// try_mark_executed() == Err(Ok(GovError::X)) negatives hold.
+    pub fn mark_executed(env: Env, id: u32) -> Result<(), GovError> {
+        let mut rec = storage::get_proposal(&env, id);
+        if rec.executed || rec.status == ProposalStatus::Executed {
+            return Err(GovError::AlreadyExecuted);
+        }
+        if rec.status != ProposalStatus::Approved {
+            return Err(GovError::NotApproved);
+        }
+        rec.executed = true;
+        rec.status = ProposalStatus::Executed;
+        storage::set_proposal(&env, id, &rec);
+        ProposalExecuted { id }.publish(&env);
+        Ok(())
     }
 }
