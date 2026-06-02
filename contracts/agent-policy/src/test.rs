@@ -65,6 +65,12 @@ pub mod fixtures {
         let cfg = QuorumCfg { min_voters: 3, yes_must_exceed_no: true };
         env.mock_all_auths();
         gv.init(&admin, &usdc, &cfg, &w);
+        // Task M2-0c: configure an executor so `mark_executed`'s `get_executor().require_auth()`
+        // gate resolves (mock_all_auths satisfies the executor signer). The reject_already_executed
+        // gate test marks the proposal Executed via this path; without an executor set, mark_executed
+        // panics NotInitialized reading DataKey::Executor (gov-vault storage.rs:get_executor).
+        let executor = Address::generate(env);
+        gv.set_executor(&executor);
 
         set_time(env, 1_000);
         let spec = ActionSpec {
@@ -83,6 +89,43 @@ pub mod fixtures {
         set_time(env, 2_001); // advance past deadline
         gv.close(&id);
         id
+    }
+
+    /// Like `approve_swap` but the proposal is CREATED ONLY (no votes, no close) so it stays Open
+    /// and `is_approved == false`. Used by the reject_not_approved gate test. Returns the Open id.
+    pub fn create_open_swap(
+        env: &Env,
+        gv: &GovVaultClient,
+        asset_in: &Address,
+        asset_out: &Address,
+        amount: i128,
+        cap: i128,
+    ) -> u32 {
+        let admin = Address::generate(env);
+        let usdc = Address::generate(env);
+        let v1 = Address::generate(env);
+        let v2 = Address::generate(env);
+        let v3 = Address::generate(env);
+        let mut w: Map<Address, i128> = Map::new(env);
+        w.set(v1.clone(), 10);
+        w.set(v2.clone(), 10);
+        w.set(v3.clone(), 10);
+        let cfg = QuorumCfg { min_voters: 3, yes_must_exceed_no: true };
+        env.mock_all_auths();
+        gv.init(&admin, &usdc, &cfg, &w);
+        let executor = Address::generate(env);
+        gv.set_executor(&executor);
+
+        set_time(env, 1_000);
+        let spec = ActionSpec {
+            kind: SwapKind::Swap,
+            asset_in: asset_in.clone(),
+            asset_out: asset_out.clone(),
+            amount,
+            min_out: 1i128,
+        };
+        let deadline: u64 = 2_000;
+        gv.create_proposal(&spec, &cap, &deadline) // NOT voted/closed -> stays Open
     }
 }
 
@@ -391,4 +434,213 @@ fn params_roundtrip_and_error_codes() {
     assert_eq!(PolicyError::MultiCall as u32, 8);
     assert_eq!(PolicyError::MalformedArgs as u32, 9);
     assert_eq!(PolicyError::WrongAssetOut as u32, 10);
+}
+
+// ===========================================================================
+// Task M2-2 — the gate engine harness (`gates` submodule, support code, NO assertions).
+// Reused by EVERY allow/reject case (single try_test_enforce mechanism, no catch_unwind).
+// Also provides `gates::rule(...)` used by the M2-1b install/uninstall auth tests.
+// ===========================================================================
+pub mod gates {
+    use super::fixtures;
+    use crate::{AgentPolicy, AgentPolicyClient, AgentPolicyParams};
+    use soroban_sdk::{
+        auth::{Context, ContractContext},
+        symbol_short, testutils::Address as _, vec, Address, Env, IntoVal, String, Val, Vec,
+    };
+    use stellar_accounts::smart_account::{ContextRule, ContextRuleType, Signer};
+
+    pub struct Setup {
+        pub env: Env,
+        pub policy: AgentPolicyClient<'static>,
+        pub sa: Address,
+        pub gov: Address,
+        pub amm: Address,
+        pub asset_in: Address,
+        pub asset_out: Address,
+        pub id: u32,
+        pub cap: i128,
+    }
+
+    /// Deploy GovVault + AgentPolicy, approve proposal `id` (swap asset_in->asset_out, amount=cap,
+    /// cap), install policy params via the cfg(test) setter. Returns the Setup.
+    pub fn setup(cap: i128) -> Setup {
+        let env = Env::default();
+        env.mock_all_auths(); // governance/admin auths mocked; the GATE under test is real
+        let (gv, gov) = fixtures::deploy_gov(&env);
+        let amm = Address::generate(&env);
+        let asset_in = Address::generate(&env);
+        let asset_out = Address::generate(&env);
+        let id = fixtures::approve_swap(&env, &gv, &asset_in, &asset_out, cap, cap); // -> Approved
+        let sa = Address::generate(&env);
+        let pid = env.register(AgentPolicy, ());
+        let policy = AgentPolicyClient::new(&env, &pid);
+        let params = AgentPolicyParams {
+            gov_vault: gov.clone(),
+            approved_amm: amm.clone(),
+            treasury_asset: asset_in.clone(),
+            proposal_id: id,
+        };
+        policy.test_set_params(&sa, &params);
+        Setup { env, policy, sa, gov, amm, asset_in, asset_out, id, cap }
+    }
+
+    /// Same as setup but the proposal is CREATED ONLY (not voted/closed) -> is_approved == false.
+    pub fn setup_open(cap: i128) -> Setup {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (gv, gov) = fixtures::deploy_gov(&env);
+        let amm = Address::generate(&env);
+        let asset_in = Address::generate(&env);
+        let asset_out = Address::generate(&env);
+        let id = fixtures::create_open_swap(&env, &gv, &asset_in, &asset_out, cap, cap); // NOT approved
+        let sa = Address::generate(&env);
+        let pid = env.register(AgentPolicy, ());
+        let policy = AgentPolicyClient::new(&env, &pid);
+        let params = AgentPolicyParams {
+            gov_vault: gov.clone(),
+            approved_amm: amm.clone(),
+            treasury_asset: asset_in.clone(),
+            proposal_id: id,
+        };
+        policy.test_set_params(&sa, &params);
+        Setup { env, policy, sa, gov, amm, asset_in, asset_out, id, cap }
+    }
+
+    /// Build a Context::Contract for `swap(asset_in, amount_in, min_out, to)` on `target`.
+    /// arg order MUST match SwapVenue::swap (§foundation §2.4): (asset_in, amount_in, min_out, to)
+    /// — arity 4.
+    pub fn swap_ctx(
+        env: &Env,
+        target: &Address,
+        asset_in: &Address,
+        amount_in: i128,
+        min_out: i128,
+        to: &Address,
+    ) -> Context {
+        let args: Vec<Val> = vec![
+            env,
+            asset_in.into_val(env),
+            amount_in.into_val(env),
+            min_out.into_val(env),
+            to.into_val(env),
+        ];
+        Context::Contract(ContractContext {
+            contract: target.clone(),
+            fn_name: symbol_short!("swap"),
+            args,
+        })
+    }
+
+    /// A minimal ContextRule with a CallContract type (gates don't depend on signers here;
+    /// signatures are the host's job, tested in M2-3). Field set verified against stellar-accounts
+    /// v0.8.0-rc.1 smart_account/storage.rs:155 (id, context_type, name, signers, signer_ids,
+    /// policies, policy_ids, valid_until).
+    pub fn rule(env: &Env, target: &Address) -> ContextRule {
+        ContextRule {
+            id: 1,
+            context_type: ContextRuleType::CallContract(target.clone()),
+            name: String::from_str(env, "swap-rule"),
+            signers: Vec::new(env),
+            signer_ids: Vec::new(env),
+            policies: Vec::new(env),   // Vec<Address>
+            policy_ids: Vec::new(env), // Vec<u32>
+            valid_until: None,         // Option<u32>
+        }
+    }
+}
+
+// ===========================================================================
+// Task M2-1b — REAL install/uninstall auth tests (acceptance tests for M2-2's `impl Policy`).
+// These are RED until M2-2's `impl Policy for AgentPolicy` lands (no `install`/`uninstall` method).
+// ===========================================================================
+#[test]
+fn install_stores_params_with_sa_auth() {
+    let env = Env::default();
+    let sa = Address::generate(&env);
+    let gov = Address::generate(&env);
+    let amm = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let p = AgentPolicyParams {
+        gov_vault: gov,
+        approved_amm: amm.clone(),
+        treasury_asset: asset,
+        proposal_id: 0u32,
+    };
+    let pid = env.register(AgentPolicy, ());
+    let c = AgentPolicyClient::new(&env, &pid);
+    let rule = gates::rule(&env, &amm);
+    // require_auth for `sa` must be satisfied: authorize ONLY the install call for `sa`.
+    // SOURCE: soroban_sdk 26.0.1 testutils/mock_auth.rs MockAuth{address,invoke} /
+    // MockAuthInvoke{contract,fn_name,args,sub_invokes} (verified 2026-06-02).
+    env.mock_auths(&[soroban_sdk::testutils::MockAuth {
+        address: &sa,
+        invoke: &soroban_sdk::testutils::MockAuthInvoke {
+            contract: &pid,
+            fn_name: "install",
+            args: (p.clone(), rule.clone(), sa.clone()).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    c.install(&p, &rule, &sa);
+    assert_eq!(c.params(&sa), p);
+}
+
+#[test]
+fn install_without_sa_auth_fails() {
+    let env = Env::default();
+    let sa = Address::generate(&env);
+    let amm = Address::generate(&env);
+    let p = AgentPolicyParams {
+        gov_vault: Address::generate(&env),
+        approved_amm: amm.clone(),
+        treasury_asset: Address::generate(&env),
+        proposal_id: 0u32,
+    };
+    let pid = env.register(AgentPolicy, ());
+    let c = AgentPolicyClient::new(&env, &pid);
+    let rule = gates::rule(&env, &amm);
+    // NO mock_auths for `sa` -> require_auth() must fail. try_install surfaces the error.
+    let res = c.try_install(&p, &rule, &sa);
+    assert!(res.is_err(), "install must require smart-account auth");
+}
+
+#[test]
+fn uninstall_removes_params_with_auth() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let sa = Address::generate(&env);
+    let amm = Address::generate(&env);
+    let p = AgentPolicyParams {
+        gov_vault: Address::generate(&env),
+        approved_amm: amm.clone(),
+        treasury_asset: Address::generate(&env),
+        proposal_id: 0u32,
+    };
+    let pid = env.register(AgentPolicy, ());
+    let c = AgentPolicyClient::new(&env, &pid);
+    let rule = gates::rule(&env, &amm);
+    c.install(&p, &rule, &sa);
+    assert_eq!(c.params(&sa), p);
+    c.uninstall(&rule, &sa);
+    // params now gone -> params() panic_with_error!(NotInstalled). `params` returns a plain value
+    // (not Result<_, PolicyError>), so try_params surfaces the panic as
+    // Err(Ok(soroban_sdk::Error::from_contract_error(NotInstalled))) — NOT Err(Ok(PolicyError::X)).
+    // (FIX vs plan snippet, which wrote Err(Ok(PolicyError::NotInstalled)): that only type-checks for
+    // functions whose declared return is Result<_, PolicyError>; `params` is infallible+panicking.)
+    let expected =
+        soroban_sdk::Error::from_contract_error(PolicyError::NotInstalled as u32);
+    assert_eq!(c.try_params(&sa), Err(Ok(expected)));
+}
+
+// ===========================================================================
+// Task M2-2 — ALLOW (the gate engine + test_enforce harness; ONE red->green cycle).
+// ===========================================================================
+#[test]
+fn allow_valid_swap() {
+    let s = gates::setup(15_000i128);
+    let ctx = gates::swap_ctx(&s.env, &s.amm, &s.asset_in, 15_000, 1, &s.sa);
+    // try_test_enforce surfaces the contract Result; Ok(()) == allowed.
+    let res = s.policy.try_test_enforce(&ctx, &s.sa);
+    assert_eq!(res, Ok(Ok(())), "valid swap must be allowed");
 }

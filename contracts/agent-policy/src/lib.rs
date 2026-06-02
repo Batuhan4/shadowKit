@@ -12,7 +12,14 @@
 // cross-contract read of GovVault inside `enforce` DURING auth WORKS. So the OZ policy is the
 // primary host of record and gates (a) is_approved / (b) !executed are read LIVE via GovVaultClient
 // inside `enforce`. No stale mirror is needed.
-use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env};
+use soroban_sdk::{
+    auth::Context, contract, contracterror, contractimpl, contracttype, Address, Env, Vec,
+};
+// SOURCE: stellar-accounts v0.8.0-rc.1 — modules at the crate ROOT (no `accounts::` segment).
+use stellar_accounts::{
+    policies::Policy,
+    smart_account::{ContextRule, Signer},
+};
 use gov_vault::GovVaultClient;
 
 mod policy;
@@ -68,11 +75,50 @@ impl AgentPolicy {
         policy::store_params(&env, &smart_account, &params);
     }
 
-    // NOTE: `test_enforce` (the `Result<(), PolicyError>` harness) and `impl Policy`
-    // (enforce/install/uninstall) are ADDED in Task M2-2 once `policy::enforce_gates_checked` exists.
+    /// TEST-ONLY: assert the EXACT gate error. Calls the SAME logic `enforce` uses (DRY).
+    #[cfg(test)]
+    pub fn test_enforce(
+        env: Env,
+        context: Context,
+        smart_account: Address,
+    ) -> Result<(), PolicyError> {
+        policy::enforce_gates_checked(&env, context, smart_account)
+    }
 
     /// §13.4 EASY-CASE probe (Task M2-V1b): cross-read GovVault from a NORMAL entrypoint.
     pub fn probe_cross_read(env: Env, gov_vault: Address, id: u32) -> bool {
         GovVaultClient::new(&env, &gov_vault).is_approved(&id)
+    }
+}
+
+#[contractimpl]
+impl Policy for AgentPolicy {
+    type AccountParams = AgentPolicyParams;
+
+    fn enforce(
+        e: &Env,
+        context: Context,
+        _authenticated_signers: Vec<Signer>,
+        _context_rule: ContextRule,
+        smart_account: Address,
+    ) {
+        policy::enforce_gates(e, context, smart_account);
+    }
+
+    fn install(
+        e: &Env,
+        install_params: AgentPolicyParams,
+        _context_rule: ContextRule,
+        smart_account: Address,
+    ) {
+        smart_account.require_auth(); // SOURCE pattern: OZ spending_limit::install requires sa auth
+        policy::store_params(e, &smart_account, &install_params);
+    }
+
+    fn uninstall(e: &Env, _context_rule: ContextRule, smart_account: Address) {
+        smart_account.require_auth();
+        e.storage()
+            .persistent()
+            .remove(&policy::PolicyKey::Params(smart_account));
     }
 }
