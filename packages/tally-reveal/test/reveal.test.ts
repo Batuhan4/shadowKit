@@ -70,3 +70,31 @@ describe("revealTally pre-deadline reveal fails (REAL tlock early-decrypt gate, 
     await expect(buildRevealArgs(7, [released, future])).rejects.toThrow(/too early/i);
   }, 180_000);
 });
+
+import { buildRevealArgsForMode } from "../src/index.js";
+
+// Foundation §3.1: sealedCommitmentHash is a 32-byte (64-hex-char) 0x value.
+// (reuse the module-scope `be32` declared above for the buildRevealArgs suite — no re-declaration)
+const SEL_HASH_1 = be32(0x01); // 0x0000...0001
+const SEL_HASH_2 = be32(0x02);
+
+describe("REVEAL_MODE selector (primary vs fallbacks)", () => {
+  it("timelock (default) re-aggregates weighted from real decryptions", async () => {
+    const v0 = await seal(1, "100"); v0.sealedCommitmentHash = SEL_HASH_1;
+    const v1 = await seal(0, "300"); v1.sealedCommitmentHash = SEL_HASH_2;
+    const args = await buildRevealArgsForMode("timelock", 1, [v0, v1]);
+    expect(args.revealedYesW).toBe("100");
+    expect(args.revealedNoW).toBe("300");
+    expect(args.decryptions).toHaveLength(2);
+    expect(args.decryptions[0].sealedCommitmentHash).toMatch(/^0x[0-9a-f]{64}$/);
+  }, 120_000);
+
+  it("weight-unlinked mode head-counts and submits no decryptions", async () => {
+    const v0 = await seal(1, "100"); v0.sealedCommitmentHash = SEL_HASH_1;
+    const v1 = await seal(0, "300"); v1.sealedCommitmentHash = SEL_HASH_2;
+    const args = await buildRevealArgsForMode("weight-unlinked", 1, [v0, v1]);
+    expect(args.revealedYesW).toBe("1");
+    expect(args.revealedNoW).toBe("1");
+    expect(args.decryptions).toEqual([]); // unlinked submits aggregate only
+  }, 120_000);
+});

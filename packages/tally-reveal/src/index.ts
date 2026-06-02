@@ -40,3 +40,25 @@ export async function buildRevealArgs(
   }));
   return { proposalId, revealedYesW: yesW, revealedNoW: noW, decryptions };
 }
+
+// --- M5 fallback re-exports + REVEAL_MODE selector (spec §13.2 ladder) ---
+import { aggregateUnlinked, aggregate1p1v } from "./degrade.js";
+export { aggregateUnlinked, aggregate1p1v } from "./degrade.js";
+export { commitVote, coordinatorReveal, type CommittedVote } from "./coordinator.js";
+
+export type RevealMode = "timelock" | "weight-unlinked" | "1p1v";
+
+/** Config-selectable reveal. `timelock` = PRIMARY (weighted, with per-vote decryptions for
+ *  on-chain re-aggregation). `weight-unlinked`/`1p1v` = degradation fallbacks (head-count,
+ *  empty decryptions -> use the on-chain coordinator-reveal feature). spec §13.2 ladder. */
+export async function buildRevealArgsForMode(
+  mode: RevealMode,
+  proposalId: number,
+  sealedVotes: SealedVoteCiphertext[],
+  drand?: DrandConfig,
+): Promise<RevealArgs> {
+  if (mode === "timelock") return buildRevealArgs(proposalId, sealedVotes, drand);
+  const { decrypted } = await revealTally(sealedVotes, drand);
+  const agg = mode === "weight-unlinked" ? aggregateUnlinked(decrypted) : aggregate1p1v(decrypted);
+  return { proposalId, revealedYesW: agg.yesW, revealedNoW: agg.noW, decryptions: [] };
+}
