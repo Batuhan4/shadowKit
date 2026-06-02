@@ -49,41 +49,62 @@ impl SwapVenue for SoroswapAdapter {
 #[cfg(test)]
 mod test {
     use super::*;
-    use soroban_sdk::{contract, contractimpl, testutils::Address as _, Env};
+    use soroban_sdk::{contract, contractimpl, testutils::Address as _, vec, Env, Vec};
 
-    // Mock router implementing SwapVenue: returns a deterministic out and fixed reserves so the
-    // delegation is observable (no real token movement needed — the assertion is "the adapter
-    // forwarded to the router and returned ITS result").
+    // Soroswap-shaped MockRouter: mimics the VERIFIED swap_exact_tokens_for_tokens signature (Task 8.0,
+    // soroswap/core contracts/router). The live router returns Result<Vec<i128>, CombinedRouterError>;
+    // the generated #[contractclient] method unwraps the Ok value, so the success-path return modeled
+    // here is the bare Vec<i128> (the path amounts; last element = amount out).
     #[contract]
-    pub struct MockRouter;
+    pub struct MockSoroswapRouter;
     #[contractimpl]
-    impl SwapVenue for MockRouter {
-        fn swap(_e: Env, _asset_in: Address, amount_in: i128, _min_out: i128, _to: Address) -> i128 {
-            amount_in * 2 // deterministic, observable delegation result
-        }
-        fn reserves(_e: Env) -> (i128, i128) {
-            (1_000i128, 2_000i128)
+    impl MockSoroswapRouter {
+        pub fn swap_exact_tokens_for_tokens(
+            env: Env,
+            amount_in: i128,
+            amount_out_min: i128,
+            path: Vec<Address>,
+            to: Address,
+            _deadline: u64,
+        ) -> Vec<i128> {
+            // Pretend a 1:2 rate; assert min-out respected (slippage) like the real router.
+            let out = amount_in * 2;
+            assert!(out >= amount_out_min, "slippage");
+            let _ = (path, to);
+            vec![&env, amount_in, out]
         }
     }
 
     #[test]
-    fn adapter_delegates_swap_to_router() {
+    fn adapter_swap_forwards_to_soroswap_router_and_returns_out() {
         let env = Env::default();
         env.mock_all_auths();
-        let router = env.register(MockRouter, ());
-        let adapter = env.register(SoroswapAdapter, ());
-        let c = SoroswapAdapterClient::new(&env, &adapter);
-        c.init(&router);
-        assert_eq!(c.router(), router);
-        // BEHAVIORAL: the adapter forwards to the router and returns its out (amount_in*2).
-        let asset = Address::generate(&env);
+        let router_id = env.register(MockSoroswapRouter, ());
+        let asset_in = Address::generate(&env);
+        let asset_out = Address::generate(&env);
         let to = Address::generate(&env);
-        let out = c.swap(&asset, &100i128, &1i128, &to);
-        assert_eq!(out, 200i128, "adapter must delegate swap to the configured router");
-        assert_eq!(
-            c.reserves(),
-            (1_000i128, 2_000i128),
-            "adapter must delegate reserves to the router"
-        );
+
+        let adapter_id = env.register(SoroswapAdapter, ());
+        let adapter = SoroswapAdapterClient::new(&env, &adapter_id);
+        adapter.init(&router_id, &asset_in, &asset_out);
+
+        // BEHAVIORAL: the adapter (impl SwapVenue) forwards to the live router and returns its out.
+        let out = adapter.swap(&asset_in, &1_000i128, &1_500i128, &to);
+        assert_eq!(out, 2_000i128); // 1000 * 2
+    }
+
+    #[test]
+    #[should_panic(expected = "slippage")]
+    fn adapter_swap_respects_min_out() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let router_id = env.register(MockSoroswapRouter, ());
+        let asset_in = Address::generate(&env);
+        let asset_out = Address::generate(&env);
+        let to = Address::generate(&env);
+        let adapter_id = env.register(SoroswapAdapter, ());
+        let adapter = SoroswapAdapterClient::new(&env, &adapter_id);
+        adapter.init(&router_id, &asset_in, &asset_out);
+        adapter.swap(&asset_in, &1_000i128, &5_000i128, &to); // demand 5000, router gives 2000 -> panic
     }
 }
