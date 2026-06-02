@@ -1,0 +1,11 @@
+[package]
+name = "shadowkit-shared"
+version = { workspace = true }
+edition = { workspace = true }
+publish = false
+
+[lib]
+doctest = false
+
+[dependencies]
+soroban-sdk = { workspace = true }
