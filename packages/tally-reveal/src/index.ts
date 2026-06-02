@@ -24,11 +24,19 @@ export async function revealTally(
   return { yesW: yes.toString(), noW: no.toString(), decrypted };
 }
 
-export function buildRevealArgs(
-  _proposalId: number,
-  _sealedVotes: SealedVoteCiphertext[],
-  _drand?: DrandConfig,
+/** Build GovVault.close_and_reveal args. ONE VoteDecryption per sealed vote, SAME order
+ *  as DataKey::SealedVotes(id); each carries its sealedCommitmentHash so the chain binds it
+ *  to the stored ciphertext, then re-aggregates (foundation §2.2, §3.4). */
+export async function buildRevealArgs(
+  proposalId: number,
+  sealedVotes: SealedVoteCiphertext[],
+  drand?: DrandConfig,
 ): Promise<RevealArgs> {
-  void (null as unknown as VoteDecryption);
-  throw new Error("buildRevealArgs: implemented in M5");
+  const { yesW, noW, decrypted } = await revealTally(sealedVotes, drand);
+  const decryptions: VoteDecryption[] = decrypted.map((d, i) => ({
+    direction: d.direction,
+    weight: d.weight,
+    sealedCommitmentHash: sealedVotes[i]!.sealedCommitmentHash,
+  }));
+  return { proposalId, revealedYesW: yesW, revealedNoW: noW, decryptions };
 }
