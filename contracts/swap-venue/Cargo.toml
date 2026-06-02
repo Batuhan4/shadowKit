@@ -8,5 +8,15 @@ publish = false
 crate-type = ["rlib"]
 doctest = false
 
+[features]
+default = []
+# M2-8: the SoroswapAdapter alternate venue (trait-conformance + REAL delegation to a configured
+# SwapVenue router). M6 wires the live Soroswap router behind this same feature.
+soroswap = []
+
 [dependencies]
 soroban-sdk = { workspace = true }
+
+[dev-dependencies]
+# testutils for the adapter's behavioral delegation test (Env::register, mock_all_auths, etc.)
+soroban-sdk = { workspace = true, features = ["testutils"] }

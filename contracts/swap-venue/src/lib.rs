@@ -17,3 +17,8 @@ pub trait SwapVenue {
     /// Current reserves (reserve_a, reserve_b) keyed by the pool's canonical asset ordering.
     fn reserves(env: Env) -> (i128, i128);
 }
+
+// M2-8: the alternate (config-selectable) venue. Compiled only under `--features soroswap`; the
+// default build (and the existing SwapVenue trait) is untouched. M6 wires the live Soroswap router.
+#[cfg(feature = "soroswap")]
+pub mod soroswap_adapter;
