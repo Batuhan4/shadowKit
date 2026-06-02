@@ -125,6 +125,7 @@
         }
       ]
     ],
+    [],
     []
   ],
   "ledger": {
@@ -601,38 +602,5 @@
       }
     ]
   },
-  "events": [
-    {
-      "event": {
-        "ext": "v0",
-        "contract_id": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-        "type_": "contract",
-        "body": {
-          "v0": {
-            "topics": [
-              {
-                "symbol": "vote_cast"
-              },
-              {
-                "u32": 0
-              }
-            ],
-            "data": {
-              "map": [
-                {
-                  "key": {
-                    "symbol": "nullifier"
-                  },
-                  "val": {
-                    "bytes": "676f93a43c91a6b741a05e11e4fd521dedcc245c37145a504bbc663af6596638"
-                  }
-                }
-              ]
-            }
-          }
-        }
-      },
-      "failed_call": false
-    }
-  ]
+  "events": []
 }

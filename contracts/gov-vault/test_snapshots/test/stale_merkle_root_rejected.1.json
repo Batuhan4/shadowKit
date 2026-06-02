@@ -23,7 +23,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
                 },
                 {
-                  "bytes": "4e189ab03ef339f1d6113c7d6cf356f85b104d0b6735421b5dc9876106939025"
+                  "bytes": "0707070707070707070707070707070707070707070707070707070707070707"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
@@ -197,31 +197,6 @@
               "key": {
                 "vec": [
                   {
-                    "symbol": "Nullifier"
-                  },
-                  {
-                    "bytes": "676f93a43c91a6b741a05e11e4fd521dedcc245c37145a504bbc663af6596638"
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": "void"
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 4095
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
                     "symbol": "Proposal"
                   },
                   {
@@ -326,7 +301,7 @@
                       "symbol": "votes_cast"
                     },
                     "val": {
-                      "u32": 1
+                      "u32": 0
                     }
                   },
                   {
@@ -340,62 +315,6 @@
                       "symbol": "weighted_yes"
                     },
                     "val": "void"
-                  }
-                ]
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 4095
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "SealedVotes"
-                  },
-                  {
-                    "u32": 0
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "vec": [
-                  {
-                    "map": [
-                      {
-                        "key": {
-                          "symbol": "ciphertext"
-                        },
-                        "val": {
-                          "bytes": "7365616c65642d626c6f62"
-                        }
-                      },
-                      {
-                        "key": {
-                          "symbol": "round"
-                        },
-                        "val": {
-                          "u64": "0"
-                        }
-                      },
-                      {
-                        "key": {
-                          "symbol": "sealed_commitment_hash"
-                        },
-                        "val": {
-                          "bytes": "514acc05a6547bf5935027d549ebb2f8b400084d1b5e7aace40ac6ae877e0801"
-                        }
-                      }
-                    ]
                   }
                 ]
               }
@@ -468,7 +387,7 @@
                         ]
                       },
                       "val": {
-                        "bytes": "4e189ab03ef339f1d6113c7d6cf356f85b104d0b6735421b5dc9876106939025"
+                        "bytes": "0707070707070707070707070707070707070707070707070707070707070707"
                       }
                     },
                     {
@@ -601,38 +520,5 @@
       }
     ]
   },
-  "events": [
-    {
-      "event": {
-        "ext": "v0",
-        "contract_id": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-        "type_": "contract",
-        "body": {
-          "v0": {
-            "topics": [
-              {
-                "symbol": "vote_cast"
-              },
-              {
-                "u32": 0
-              }
-            ],
-            "data": {
-              "map": [
-                {
-                  "key": {
-                    "symbol": "nullifier"
-                  },
-                  "val": {
-                    "bytes": "676f93a43c91a6b741a05e11e4fd521dedcc245c37145a504bbc663af6596638"
-                  }
-                }
-              ]
-            }
-          }
-        }
-      },
-      "failed_call": false
-    }
-  ]
+  "events": []
 }

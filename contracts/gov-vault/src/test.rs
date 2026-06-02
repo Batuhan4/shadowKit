@@ -1,50 +1,18 @@
 #![cfg(test)]
+extern crate std;
 use crate::{GovVault, GovVaultClient, GovError};
-use shadowkit_shared::QuorumCfg;
-use soroban_sdk::{testutils::Address as _, Address, Env, Map};
+use shadowkit_shared::{ActionSpec, QuorumCfg, ProposalStatus, SwapKind, SealedVote};
+use soroban_sdk::{testutils::Address as _, testutils::{Ledger, LedgerInfo}, Address, Bytes, BytesN, Env};
 
-fn setup() -> (Env, GovVaultClient<'static>, Address, Address) {
-    let env = Env::default();
-    let contract_id = env.register(GovVault, ());
-    let client = GovVaultClient::new(&env, &contract_id);
-    let admin = Address::generate(&env);
-    let usdc = Address::generate(&env);
-    (env, client, admin, usdc)
+use crate::test_fixtures::{
+    committed_proof, committed_public_signals, merkle_root_be32, sealed_commit_be32,
+};
+
+// ---- shared helpers ----
+
+pub(crate) fn default_quorum(_env: &Env) -> QuorumCfg {
+    QuorumCfg { min_voters: 3, yes_must_exceed_no: true }
 }
-
-/// Build a Map<Address,i128> of voter -> weight for the snapshot.
-fn weights(env: &Env, entries: &[(Address, i128)]) -> Map<Address, i128> {
-    let mut m = Map::new(env);
-    for (a, w) in entries.iter() {
-        m.set(a.clone(), *w);
-    }
-    m
-}
-
-#[test]
-fn test_init_sets_state() {
-    let (env, client, admin, usdc) = setup();
-    let v1 = Address::generate(&env);
-    let cfg = QuorumCfg { min_voters: 3, yes_must_exceed_no: true };
-    let w = weights(&env, &[(v1.clone(), 10)]);
-    env.mock_all_auths();
-    client.init(&admin, &usdc, &cfg, &w);
-    // No panic == success. weight_of exposes the snapshot.
-    assert_eq!(client.weight_of(&v1), 10);
-}
-
-#[test]
-fn test_double_init_rejects() {
-    let (env, client, admin, usdc) = setup();
-    let cfg = QuorumCfg { min_voters: 3, yes_must_exceed_no: true };
-    let w = weights(&env, &[]);
-    env.mock_all_auths();
-    client.init(&admin, &usdc, &cfg, &w);
-    let res = client.try_init(&admin, &usdc, &cfg, &w);
-    assert_eq!(res, Err(Ok(GovError::AlreadyInitialized)));
-}
-
-use shadowkit_shared::{ActionSpec, SwapKind, ProposalStatus};
 
 fn sample_spec(env: &Env) -> ActionSpec {
     ActionSpec {
@@ -55,102 +23,6 @@ fn sample_spec(env: &Env) -> ActionSpec {
         min_out: 14_000,
     }
 }
-
-fn init_default(env: &Env, client: &GovVaultClient, admin: &Address, usdc: &Address) {
-    let cfg = QuorumCfg { min_voters: 3, yes_must_exceed_no: true };
-    let w = weights(env, &[]);
-    env.mock_all_auths();
-    client.init(admin, usdc, &cfg, &w);
-}
-
-#[test]
-fn test_create_proposal_sequential_ids() {
-    let (env, client, admin, usdc) = setup();
-    init_default(&env, &client, &admin, &usdc);
-    let spec = sample_spec(&env);
-    let id0 = client.create_proposal(&spec, &15_000i128, &2_000_000_000u64);
-    let id1 = client.create_proposal(&spec, &15_000i128, &2_000_000_000u64);
-    assert_eq!(id0, 0);
-    assert_eq!(id1, 1);
-}
-
-#[test]
-fn test_proposal_view_no_tally_before_close() {
-    let (env, client, admin, usdc) = setup();
-    init_default(&env, &client, &admin, &usdc);
-    let spec = sample_spec(&env);
-    let id = client.create_proposal(&spec, &15_000i128, &2_000_000_000u64);
-    let view = client.proposal(&id);
-    assert_eq!(view.id, id);
-    assert_eq!(view.status, ProposalStatus::Open);
-    assert_eq!(view.votes_cast, 0);
-    assert_eq!(view.cap, 15_000);
-    assert_eq!(view.deadline, 2_000_000_000);
-    // BINDING invariant (foundation §2.2 / §7): no tally exposed before close.
-    assert_eq!(view.weighted_yes, None);
-    assert_eq!(view.weighted_no, None);
-}
-
-#[test]
-fn test_proposal_not_found() {
-    let (env, client, admin, usdc) = setup();
-    init_default(&env, &client, &admin, &usdc);
-    assert_eq!(client.try_proposal(&99u32), Err(Ok(GovError::ProposalNotFound)));
-}
-
-// INVARIANT (foundation §5 / §2.6: "amount bounded by proposal cap"; spec §9 "ActionSpec: cap bounds amount"):
-// create_proposal MUST reject a spec whose amount exceeds cap (and a non-positive amount), so the
-// cap invariant AgentPolicy (M2) and the safeguard "amount <= proposal cap" depend on cannot be
-// silently violated at create time.
-#[test]
-fn test_create_proposal_rejects_amount_over_cap() {
-    let (env, client, admin, usdc) = setup();
-    init_default(&env, &client, &admin, &usdc);
-    // spec.amount = 15_000 but cap = 10_000 -> amount > cap -> reject
-    let spec = sample_spec(&env); // amount 15_000
-    let res = client.try_create_proposal(&spec, &10_000i128, &2_000_000_000u64);
-    assert_eq!(res, Err(Ok(GovError::ProposalAmountOverCap)));
-}
-
-#[test]
-fn test_create_proposal_rejects_nonpositive_amount() {
-    let (env, client, admin, usdc) = setup();
-    init_default(&env, &client, &admin, &usdc);
-    let mut spec = sample_spec(&env);
-    spec.amount = 0; // amount must be strictly positive (0 <= cap, but a 0-amount swap is invalid)
-    // the impl rejects amount <= 0 with the SAME error code as amount > cap (ProposalAmountOverCap)
-    let res = client.try_create_proposal(&spec, &10_000i128, &2_000_000_000u64);
-    assert_eq!(res, Err(Ok(GovError::ProposalAmountOverCap)));
-}
-
-// INVARIANT: deadline must be strictly in the future relative to the current ledger timestamp,
-// otherwise the proposal is born un-votable and close() could run immediately.
-#[test]
-fn test_create_proposal_rejects_past_deadline() {
-    let (env, client, admin, usdc) = setup();
-    init_default(&env, &client, &admin, &usdc);
-    // Advance ledger time to 1_000; a deadline of 1_000 (== now) or earlier must be rejected.
-    // (set_time helper is introduced in Task 5.1; until then, set the ledger inline here.)
-    env.ledger().set(soroban_sdk::testutils::LedgerInfo {
-        timestamp: 1_000,
-        protocol_version: 26, // SDK 26.0.1 host min proto = 26 (was 25 in plan; testutils.rs default is 26)
-        sequence_number: 10,
-        network_id: [0; 32],
-        base_reserve: 10,
-        min_temp_entry_ttl: 16,
-        min_persistent_entry_ttl: 16,
-        max_entry_ttl: 10_000_000,
-    });
-    let spec = sample_spec(&env);
-    let res = client.try_create_proposal(&spec, &15_000i128, &1_000u64); // deadline == now
-    assert_eq!(res, Err(Ok(GovError::DeadlineInPast)));
-}
-
-// ============================================================================
-// Task 5 / Task 6 — cast_vote (happy + 4 guards) + VoteCast event emission
-// ============================================================================
-use soroban_sdk::testutils::{Ledger, LedgerInfo};
-use soroban_sdk::xdr::ToXdr;
 
 fn set_time(env: &Env, ts: u64) {
     env.ledger().set(LedgerInfo {
@@ -165,131 +37,361 @@ fn set_time(env: &Env, ts: u64) {
     });
 }
 
-// (1) happy path: auth + weight lookup + participation bump, no tally leak
+/// Deploy verifier + gov-vault, init with the COMMITTED snapshot root (the root the committed proof
+/// was built against) + the default (strict) quorum. Returns (gov_client, verifier_id).
+fn deploy_with_committed_root(env: &Env) -> (GovVaultClient<'static>, Address) {
+    let verifier_id = env.register(groth16_verifier::Groth16Verifier {}, ());
+    let gov_id = env.register(GovVault {}, ());
+    let gov = GovVaultClient::new(env, &gov_id);
+    let admin = Address::generate(env);
+    let asset = Address::generate(env);
+    let root = merkle_root_be32(env); // BINDING: the snapshot root the committed proof was built against
+    gov.init(&admin, &verifier_id, &root, &asset, &default_quorum(env));
+    (gov, verifier_id)
+}
+
+/// Deploy + init with the committed root and a LENIENT quorum (min_voters:1, yes_must_exceed_no:false)
+/// so a single sealed vote is enough to reach quorum at close (M4 sealed votes do not feed a plaintext
+/// tally, so weighted_yes/no are 0; approval is driven by participation under the lenient quorum).
+fn deploy_lenient(env: &Env) -> (GovVaultClient<'static>, Address) {
+    let verifier_id = env.register(groth16_verifier::Groth16Verifier {}, ());
+    let gov_id = env.register(GovVault {}, ());
+    let gov = GovVaultClient::new(env, &gov_id);
+    let admin = Address::generate(env);
+    let asset = Address::generate(env);
+    let root = merkle_root_be32(env);
+    gov.init(&admin, &verifier_id, &root, &asset,
+        &QuorumCfg { min_voters: 1, yes_must_exceed_no: false });
+    (gov, verifier_id)
+}
+
+/// Create a proposal with a future deadline relative to the current ledger time.
+pub(crate) fn create_default_proposal(env: &Env, gov: &GovVaultClient) -> u32 {
+    let spec = sample_spec(env);
+    let deadline = env.ledger().timestamp() + 1_000;
+    gov.create_proposal(&spec, &15_000i128, &deadline)
+}
+
+fn committed_sealed(env: &Env) -> SealedVote {
+    SealedVote {
+        round: 0,
+        ciphertext: Bytes::from_array(env, b"sealed-blob"),
+        sealed_commitment_hash: sealed_commit_be32(env),
+    }
+}
+
+// ============================================================================
+// Task 4.19a — init reintroduces verifier + merkle_root (foundation §2.2)
+// ============================================================================
+
 #[test]
-fn test_cast_vote_happy_updates_participation() {
-    let (env, client, admin, usdc) = setup();
-    let v1 = Address::generate(&env);
-    let cfg = QuorumCfg { min_voters: 3, yes_must_exceed_no: true };
-    let w = weights(&env, &[(v1.clone(), 10)]);
+fn test_init_sets_state() {
+    let env = Env::default();
     env.mock_all_auths();
-    client.init(&admin, &usdc, &cfg, &w);
-    set_time(&env, 1_000);
+    let (gov, _v) = deploy_with_committed_root(&env);
+    // No panic == success; init succeeded with verifier + merkle_root set. A subsequent proposal
+    // create succeeds (proves admin/state were stored).
+    let id = create_default_proposal(&env, &gov);
+    assert_eq!(id, 0);
+}
+
+#[test]
+fn test_double_init_rejects() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let verifier_id = env.register(groth16_verifier::Groth16Verifier {}, ());
+    let gov_id = env.register(GovVault {}, ());
+    let gov = GovVaultClient::new(&env, &gov_id);
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let root = merkle_root_be32(&env);
+    gov.init(&admin, &verifier_id, &root, &asset, &default_quorum(&env));
+    let res = gov.try_init(&admin, &verifier_id, &root, &asset, &default_quorum(&env));
+    assert_eq!(res, Err(Ok(GovError::AlreadyInitialized)));
+}
+
+// ============================================================================
+// Task 4.21b — Fr<->bytes helper unit tests
+// ============================================================================
+
+use crate::{fr_eq_u32, fr_eq_bytes32, fr_to_bytes32};
+use crate::test_fixtures::fr;
+
+#[test]
+fn fr_eq_u32_matches_only_the_same_u32() {
+    let env = Env::default();
+    assert_eq!(fr_eq_u32(&env, &fr(&env, "5"), 5), true);
+    assert_eq!(fr_eq_u32(&env, &fr(&env, "5"), 6), false);
+    assert_eq!(fr_eq_u32(&env, &fr(&env, "5"), 0), false);
+    assert_eq!(fr_eq_u32(&env, &fr(&env, "0"), 0), true);
+}
+
+#[test]
+fn fr_to_bytes32_roundtrips_be32() {
+    let env = Env::default();
+    let b = fr_to_bytes32(&env, &fr(&env, "1"));
+    let mut expect = [0u8; 32];
+    expect[31] = 1;
+    assert_eq!(b, BytesN::from_array(&env, &expect));
+}
+
+#[test]
+fn fr_eq_bytes32_compares_field_to_be32() {
+    let env = Env::default();
+    let mut one = [0u8; 32];
+    one[31] = 1;
+    assert_eq!(fr_eq_bytes32(&env, &fr(&env, "1"), &BytesN::from_array(&env, &one)), true);
+    let mut two = [0u8; 32];
+    two[31] = 2;
+    assert_eq!(fr_eq_bytes32(&env, &fr(&env, "1"), &BytesN::from_array(&env, &two)), false);
+}
+
+// ============================================================================
+// Task 4.21/4.22 — sealed cast_vote happy path
+// ============================================================================
+
+#[test]
+fn sealed_cast_vote_happy_path() {
+    let env = Env::default();
+    env.mock_all_auths(); // admin auth for create_proposal; the PROOF itself is the real gate.
+    let (gov, _verifier) = deploy_with_committed_root(&env);
+    let id = create_default_proposal(&env, &gov);
+    gov.cast_vote(&id, &committed_proof(&env), &committed_public_signals(&env), &committed_sealed(&env));
+    assert_eq!(gov.votes_cast(&id), 1);
+    let pv = gov.proposal(&id);
+    assert_eq!(pv.weighted_yes, None); // NO tally before close
+    assert_eq!(pv.weighted_no, None);
+}
+
+// ============================================================================
+// Task 4.23 — double-vote (same nullifier) -> NullifierUsed
+// ============================================================================
+
+#[test]
+fn double_vote_same_nullifier_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (gov, _v) = deploy_with_committed_root(&env);
+    let id = create_default_proposal(&env, &gov);
+    let sealed = committed_sealed(&env);
+    gov.cast_vote(&id, &committed_proof(&env), &committed_public_signals(&env), &sealed);
+    // Second identical vote reuses the same nullifier -> NullifierUsed.
+    let res = gov.try_cast_vote(&id, &committed_proof(&env), &committed_public_signals(&env), &sealed);
+    assert_eq!(res, Err(Ok(GovError::NullifierUsed)));
+}
+
+// ============================================================================
+// Task 4.24 — replay across proposals (proposalId binding) -> WrongProposalId
+// ============================================================================
+
+#[test]
+fn replay_other_proposal_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (gov, _v) = deploy_with_committed_root(&env);
+    let id0 = create_default_proposal(&env, &gov); // committed proof has proposalId == 0
+    let id1 = create_default_proposal(&env, &gov); // id1 == 1
+    assert_eq!(id1, 1);
+    let sealed = committed_sealed(&env);
+    // The committed proof's proposalId signal is 0; casting it on proposal 1 must be rejected.
+    let res = gov.try_cast_vote(&id1, &committed_proof(&env), &committed_public_signals(&env), &sealed);
+    assert_eq!(res, Err(Ok(GovError::WrongProposalId)));
+    // Sanity: it DOES succeed on proposal 0.
+    gov.cast_vote(&id0, &committed_proof(&env), &committed_public_signals(&env), &sealed);
+    assert_eq!(gov.votes_cast(&id0), 1);
+}
+
+// ============================================================================
+// Task 4.25a — post-deadline vote -> DeadlinePassed
+// ============================================================================
+
+#[test]
+fn post_deadline_vote_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (gov, _v) = deploy_with_committed_root(&env);
+    let id = create_default_proposal(&env, &gov);
+    let pv = gov.proposal(&id);
+    env.ledger().set_timestamp(pv.deadline + 1);
+    let sealed = committed_sealed(&env);
+    let res = gov.try_cast_vote(&id, &committed_proof(&env), &committed_public_signals(&env), &sealed);
+    assert_eq!(res, Err(Ok(GovError::DeadlinePassed)));
+}
+
+// ============================================================================
+// Task 4.25b — stale snapshot root -> StaleMerkleRoot
+// ============================================================================
+
+#[test]
+fn stale_merkle_root_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    // init with a DIFFERENT root than the proof was built against.
+    let verifier_id = env.register(groth16_verifier::Groth16Verifier {}, ());
+    let gov_id = env.register(GovVault {}, ());
+    let gov = GovVaultClient::new(&env, &gov_id);
+    let admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let wrong_root = BytesN::from_array(&env, &[7u8; 32]);
+    gov.init(&admin, &verifier_id, &wrong_root, &asset, &default_quorum(&env));
+    let id = create_default_proposal(&env, &gov);
+    let sealed = committed_sealed(&env);
+    let res = gov.try_cast_vote(&id, &committed_proof(&env), &committed_public_signals(&env), &sealed);
+    assert_eq!(res, Err(Ok(GovError::StaleMerkleRoot)));
+}
+
+// ============================================================================
+// Task 4.25c — sealed-commitment mismatch -> InvalidProof
+// ============================================================================
+
+#[test]
+fn sealed_commitment_mismatch_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (gov, _v) = deploy_with_committed_root(&env);
+    let id = create_default_proposal(&env, &gov);
+    // ciphertext's commitment hash is WRONG (not the proof's sealedCommitmentHash signal).
+    let sealed = SealedVote {
+        round: 0,
+        ciphertext: Bytes::from_array(&env, b"a"),
+        sealed_commitment_hash: BytesN::from_array(&env, &[9u8; 32]), // != public signal[3]
+    };
+    let res = gov.try_cast_vote(&id, &committed_proof(&env), &committed_public_signals(&env), &sealed);
+    assert_eq!(res, Err(Ok(GovError::InvalidProof)));
+}
+
+// ============================================================================
+// Task 4.25d — invalid (tampered) proof -> InvalidProof
+// ============================================================================
+
+#[test]
+fn invalid_proof_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (gov, _v) = deploy_with_committed_root(&env);
+    let id = create_default_proposal(&env, &gov);
+    // Tamper pi_a so the pairing check fails, but keep the public signals (root/id/commit checks pass).
+    let mut bad = committed_proof(&env);
+    bad.a = bad.c.clone(); // valid G1 point, wrong proof -> on-chain verify returns false.
+    let sealed = committed_sealed(&env);
+    let res = gov.try_cast_vote(&id, &bad, &committed_public_signals(&env), &sealed);
+    assert_eq!(res, Err(Ok(GovError::InvalidProof)));
+}
+
+// ============================================================================
+// Task 4.26 — proposal() exposes NO tally before close (privacy invariant)
+// ============================================================================
+
+#[test]
+fn proposal_view_hides_tally_before_close() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (gov, _v) = deploy_with_committed_root(&env);
+    let id = create_default_proposal(&env, &gov);
+    gov.cast_vote(&id, &committed_proof(&env), &committed_public_signals(&env), &committed_sealed(&env));
+    let pv = gov.proposal(&id);
+    assert!(matches!(pv.status, ProposalStatus::Open | ProposalStatus::Tallying));
+    assert_eq!(pv.weighted_yes, None);
+    assert_eq!(pv.weighted_no, None);
+    assert_eq!(pv.votes_cast, 1); // participation IS exposed (no direction).
+}
+
+// ============================================================================
+// Structural tests (carried from M1, migrated to the foundation init signature)
+// ============================================================================
+
+#[test]
+fn test_create_proposal_sequential_ids() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (gov, _v) = deploy_with_committed_root(&env);
+    let id0 = create_default_proposal(&env, &gov);
+    let id1 = create_default_proposal(&env, &gov);
+    assert_eq!(id0, 0);
+    assert_eq!(id1, 1);
+}
+
+#[test]
+fn test_proposal_view_no_tally_before_close() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (gov, _v) = deploy_with_committed_root(&env);
     let spec = sample_spec(&env);
-    let id = client.create_proposal(&spec, &15_000i128, &5_000u64); // deadline far ahead
-    // direction 1 = yes
-    client.cast_vote(&id, &v1, &1u32);
-    assert_eq!(client.votes_cast(&id), 1);
-    // still no public tally before close
-    let view = client.proposal(&id);
+    let id = gov.create_proposal(&spec, &15_000i128, &2_000_000_000u64);
+    let view = gov.proposal(&id);
+    assert_eq!(view.id, id);
+    assert_eq!(view.status, ProposalStatus::Open);
+    assert_eq!(view.votes_cast, 0);
+    assert_eq!(view.cap, 15_000);
+    assert_eq!(view.deadline, 2_000_000_000);
     assert_eq!(view.weighted_yes, None);
     assert_eq!(view.weighted_no, None);
 }
 
-// (2) double-vote by the SAME voter (plaintext analogue of nullifier reuse) -> AlreadyVoted
 #[test]
-fn test_double_vote_same_voter_rejected() {
-    let (env, client, admin, usdc) = setup();
-    let v1 = Address::generate(&env);
-    let cfg = QuorumCfg { min_voters: 3, yes_must_exceed_no: true };
-    let w = weights(&env, &[(v1.clone(), 10)]);
+fn test_proposal_not_found() {
+    let env = Env::default();
     env.mock_all_auths();
-    client.init(&admin, &usdc, &cfg, &w);
-    set_time(&env, 1_000);
-    let spec = sample_spec(&env);
-    let id = client.create_proposal(&spec, &15_000i128, &5_000u64);
-    client.cast_vote(&id, &v1, &1u32);
-    // second vote by the SAME voter (even with a different direction) must be rejected
-    let res = client.try_cast_vote(&id, &v1, &0u32);
-    assert_eq!(res, Err(Ok(GovError::AlreadyVoted)));
-    // participation unchanged
-    assert_eq!(client.votes_cast(&id), 1);
+    let (gov, _v) = deploy_with_committed_root(&env);
+    assert_eq!(gov.try_proposal(&99u32), Err(Ok(GovError::ProposalNotFound)));
 }
 
-// (3) post-deadline vote -> DeadlinePassed
 #[test]
-fn test_post_deadline_vote_rejected() {
-    let (env, client, admin, usdc) = setup();
-    let v1 = Address::generate(&env);
-    let cfg = QuorumCfg { min_voters: 3, yes_must_exceed_no: true };
-    let w = weights(&env, &[(v1.clone(), 10)]);
+fn test_create_proposal_rejects_amount_over_cap() {
+    let env = Env::default();
     env.mock_all_auths();
-    client.init(&admin, &usdc, &cfg, &w);
-    set_time(&env, 1_000);
-    let spec = sample_spec(&env);
-    let id = client.create_proposal(&spec, &15_000i128, &2_000u64); // deadline = 2000
-    set_time(&env, 2_001); // advance ledger time PAST the deadline
-    let res = client.try_cast_vote(&id, &v1, &1u32);
-    assert_eq!(res, Err(Ok(GovError::DeadlinePassed)));
-    assert_eq!(client.votes_cast(&id), 0);
+    let (gov, _v) = deploy_with_committed_root(&env);
+    let spec = sample_spec(&env); // amount 15_000
+    let res = gov.try_create_proposal(&spec, &10_000i128, &2_000_000_000u64);
+    assert_eq!(res, Err(Ok(GovError::ProposalAmountOverCap)));
 }
 
-// (4) ineligible voter (not in the snapshot map) -> NotEligible
 #[test]
-fn test_ineligible_voter_rejected() {
-    let (env, client, admin, usdc) = setup();
-    let v1 = Address::generate(&env);        // eligible
-    let intruder = Address::generate(&env);  // NOT in snapshot
-    let cfg = QuorumCfg { min_voters: 3, yes_must_exceed_no: true };
-    let w = weights(&env, &[(v1.clone(), 10)]);
+fn test_create_proposal_rejects_nonpositive_amount() {
+    let env = Env::default();
     env.mock_all_auths();
-    client.init(&admin, &usdc, &cfg, &w);
-    set_time(&env, 1_000);
-    let spec = sample_spec(&env);
-    let id = client.create_proposal(&spec, &15_000i128, &5_000u64);
-    let res = client.try_cast_vote(&id, &intruder, &1u32);
-    assert_eq!(res, Err(Ok(GovError::NotEligible)));
-    assert_eq!(client.votes_cast(&id), 0);
+    let (gov, _v) = deploy_with_committed_root(&env);
+    let mut spec = sample_spec(&env);
+    spec.amount = 0;
+    let res = gov.try_create_proposal(&spec, &10_000i128, &2_000_000_000u64);
+    assert_eq!(res, Err(Ok(GovError::ProposalAmountOverCap)));
 }
 
-// (5) malformed direction (neither 0 nor 1) -> InvalidDirection (M1-additive; NOT InvalidProof)
 #[test]
-fn test_bad_direction_rejected() {
-    let (env, client, admin, usdc) = setup();
-    let v1 = Address::generate(&env);
-    let cfg = QuorumCfg { min_voters: 3, yes_must_exceed_no: true };
-    let w = weights(&env, &[(v1.clone(), 10)]);
+fn test_create_proposal_rejects_past_deadline() {
+    let env = Env::default();
     env.mock_all_auths();
-    client.init(&admin, &usdc, &cfg, &w);
+    let (gov, _v) = deploy_with_committed_root(&env);
     set_time(&env, 1_000);
     let spec = sample_spec(&env);
-    let id = client.create_proposal(&spec, &15_000i128, &5_000u64);
-    // direction 2 is invalid; must be a dedicated InvalidDirection error (discriminant 20),
-    // NOT the binding InvalidProof (discriminant 9, whose meaning is "groth16 verify false").
-    let res = client.try_cast_vote(&id, &v1, &2u32);
-    assert_eq!(res, Err(Ok(GovError::InvalidDirection)));
-    assert_eq!(client.votes_cast(&id), 0);
+    let res = gov.try_create_proposal(&spec, &15_000i128, &1_000u64); // deadline == now
+    assert_eq!(res, Err(Ok(GovError::DeadlineInPast)));
 }
 
-// Task 6 — cast_vote emits a VoteCast event with the correct binding payload
+// ============================================================================
+// cast_vote VoteCast event emission (binding payload)
+// ============================================================================
+
 #[test]
 fn test_cast_vote_emits_votecast_event() {
     use soroban_sdk::{vec, Event};
     use soroban_sdk::testutils::Events;
-    let (env, client, admin, usdc) = setup();
-    let contract_id = client.address.clone();
-    let v1 = Address::generate(&env);
-    let cfg = QuorumCfg { min_voters: 3, yes_must_exceed_no: true };
-    let w = weights(&env, &[(v1.clone(), 10)]);
+    let env = Env::default();
     env.mock_all_auths();
-    client.init(&admin, &usdc, &cfg, &w);
-    set_time(&env, 1_000);
-    let spec = sample_spec(&env);
-    let id = client.create_proposal(&spec, &15_000i128, &5_000u64);
-    client.cast_vote(&id, &v1, &1u32);
+    let (gov, _v) = deploy_with_committed_root(&env);
+    let contract_id = gov.address.clone();
+    let id = create_default_proposal(&env, &gov);
+    gov.cast_vote(&id, &committed_proof(&env), &committed_public_signals(&env), &committed_sealed(&env));
 
-    // The contract derives the event's BytesN<32> id the SAME way the impl does:
-    //   sha256(voter.to_xdr(&env)).to_bytes()  (verified Hash<32>->BytesN<32> via .to_bytes()).
-    let expected_nullifier: soroban_sdk::BytesN<32> =
-        env.crypto().sha256(&v1.clone().to_xdr(&env)).to_bytes();
+    // The contract emits VoteCast{ id, nullifier } where nullifier == be32(public.json[0]).
+    let expected_nullifier: BytesN<32> = {
+        use std::string::String;
+        use crate::test_fixtures::{be32, PUBLIC};
+        let arr: std::vec::Vec<String> = serde_json::from_str(PUBLIC).unwrap();
+        BytesN::from_array(&env, &be32(&arr[0]))
+    };
     let vote_cast = crate::VoteCast { id, nullifier: expected_nullifier };
-
-    // 26.0.1 API drift (verified): `Events::all()` returns ONLY the events of the LAST contract
-    // invocation (SDK 26.0.1 src/testutils.rs:534 "all contract events ... published by the last
-    // contract invocation"; src/_migrating/v25_event_testing.rs). `create_proposal` and `cast_vote`
-    // are SEPARATE top-level invocations through the generated client, so after the vote the list is
-    // exactly [VoteCast] (NOT the plan's [ProposalCreated, VoteCast]). We use the verified tuple-vec
-    // comparison form (the documented "old comparison style") to assert the VoteCast payload.
+    // SDK 26.0.1: Events::all() returns ONLY the LAST contract invocation's events.
     assert_eq!(
         env.events().all(),
         vec![
@@ -300,109 +402,83 @@ fn test_cast_vote_emits_votecast_event() {
 }
 
 // ============================================================================
-// Task 9 — close: weighted tally + QuorumCfg + Approved/Rejected + ProposalClosed event
+// close: weighted tally (0 in M4; sealed votes do not feed plaintext tally) + QuorumCfg
 // ============================================================================
 
-/// Cast `n` yes votes and `m` no votes with distinct eligible voters of weight 10 each.
-fn vote_scenario(env: &Env, client: &GovVaultClient, admin: &Address, usdc: &Address,
-                 yes: u32, no: u32, deadline: u64) -> u32 {
-    let mut entries: soroban_sdk::Vec<Address> = soroban_sdk::Vec::new(env);
-    let mut wmap = Map::new(env);
-    let total = yes + no;
-    for _ in 0..total {
-        let a = Address::generate(env);
-        wmap.set(a.clone(), 10i128);
-        entries.push_back(a);
-    }
-    let cfg = QuorumCfg { min_voters: 3, yes_must_exceed_no: true };
-    env.mock_all_auths();
-    client.init(admin, usdc, &cfg, &wmap);
+/// Build an APPROVED proposal: deploy lenient, create proposal, cast the committed sealed vote
+/// (participation=1), advance past deadline, close. Returns (gov, id, spec_unused).
+fn approved_proposal(env: &Env) -> (GovVaultClient<'static>, u32) {
+    let (gov, _v) = deploy_lenient(env);
     set_time(env, 1_000);
     let spec = sample_spec(env);
-    let id = client.create_proposal(&spec, &15_000i128, &deadline);
-    for i in 0..yes {
-        client.cast_vote(&id, &entries.get(i).unwrap(), &1u32);
-    }
-    for i in yes..total {
-        client.cast_vote(&id, &entries.get(i).unwrap(), &0u32);
-    }
-    id
+    let id = gov.create_proposal(&spec, &15_000i128, &2_000u64);
+    gov.cast_vote(&id, &committed_proof(env), &committed_public_signals(env), &committed_sealed(env));
+    set_time(env, 2_001); // past deadline
+    gov.close(&id);
+    (gov, id)
 }
 
 #[test]
 fn test_close_quorum_pass_sets_approved() {
-    let (env, client, admin, usdc) = setup();
-    // 3 yes (weight 30), 0 no -> yes>no AND voters(3) >= min_voters(3) -> APPROVED
-    let id = vote_scenario(&env, &client, &admin, &usdc, 3, 0, 2_000);
-    set_time(&env, 2_001); // past deadline
-    client.close(&id);
-    let view = client.proposal(&id);
+    let env = Env::default();
+    env.mock_all_auths();
+    let (gov, id) = approved_proposal(&env);
+    let view = gov.proposal(&id);
     assert_eq!(view.status, ProposalStatus::Approved);
-    assert_eq!(view.weighted_yes, Some(30));
+    // M4 sealed votes do not feed the plaintext tally -> 0/0 (real reveal lands in M5).
+    assert_eq!(view.weighted_yes, Some(0));
     assert_eq!(view.weighted_no, Some(0));
 }
 
 #[test]
 fn test_close_quorum_fail_low_participation() {
-    let (env, client, admin, usdc) = setup();
-    // 2 yes only -> votes_cast(2) < min_voters(3) -> REJECTED even though yes>no
-    let id = vote_scenario(&env, &client, &admin, &usdc, 2, 0, 2_000);
+    let env = Env::default();
+    env.mock_all_auths();
+    // strict quorum (min_voters:3); a single sealed vote -> participation 1 < 3 -> Rejected.
+    let (gov, _v) = deploy_with_committed_root(&env);
+    set_time(&env, 1_000);
+    let spec = sample_spec(&env);
+    let id = gov.create_proposal(&spec, &15_000i128, &2_000u64);
+    gov.cast_vote(&id, &committed_proof(&env), &committed_public_signals(&env), &committed_sealed(&env));
     set_time(&env, 2_001);
-    client.close(&id);
-    let view = client.proposal(&id);
+    gov.close(&id);
+    let view = gov.proposal(&id);
     assert_eq!(view.status, ProposalStatus::Rejected);
-}
-
-#[test]
-fn test_close_quorum_fail_no_majority() {
-    let (env, client, admin, usdc) = setup();
-    // 1 yes, 2 no -> votes_cast(3) >= 3 but yes(10) !> no(20) -> REJECTED
-    let id = vote_scenario(&env, &client, &admin, &usdc, 1, 2, 2_000);
-    set_time(&env, 2_001);
-    client.close(&id);
-    let view = client.proposal(&id);
-    assert_eq!(view.status, ProposalStatus::Rejected);
-    assert_eq!(view.weighted_yes, Some(10));
-    assert_eq!(view.weighted_no, Some(20));
 }
 
 #[test]
 fn test_close_before_deadline_rejected() {
-    let (env, client, admin, usdc) = setup();
-    let id = vote_scenario(&env, &client, &admin, &usdc, 3, 0, 5_000);
+    let env = Env::default();
+    env.mock_all_auths();
+    let (gov, _v) = deploy_lenient(&env);
+    set_time(&env, 1_000);
+    let spec = sample_spec(&env);
+    let id = gov.create_proposal(&spec, &15_000i128, &5_000u64);
     set_time(&env, 1_500); // before deadline 5000
-    assert_eq!(client.try_close(&id), Err(Ok(GovError::DeadlineNotReached)));
+    assert_eq!(gov.try_close(&id), Err(Ok(GovError::DeadlineNotReached)));
 }
 
 #[test]
 fn test_close_twice_rejected() {
-    let (env, client, admin, usdc) = setup();
-    let id = vote_scenario(&env, &client, &admin, &usdc, 3, 0, 2_000);
-    set_time(&env, 2_001);
-    client.close(&id);
-    assert_eq!(client.try_close(&id), Err(Ok(GovError::AlreadyRevealed)));
+    let env = Env::default();
+    env.mock_all_auths();
+    let (gov, id) = approved_proposal(&env);
+    assert_eq!(gov.try_close(&id), Err(Ok(GovError::AlreadyRevealed)));
 }
 
-// The agent watcher (foundation §2.2: "ProposalClosed is the event the agent watcher subscribes to")
-// depends on this exact payload. Assert it is emitted with the correct id/approved/weighted_yes/no.
-// 26.0.1 API drift (verified — see Task 6 note): `Events::all()` returns ONLY the events of the LAST
-// contract invocation. `close` is the last invocation here, so the list is exactly [ProposalClosed]
-// (NOT the plan's [ProposalCreated, ProposalClosed]). close with 0 voters -> approved=false (quorum fail).
 #[test]
 fn test_close_emits_proposalclosed_event() {
     use soroban_sdk::{vec, Event};
     use soroban_sdk::testutils::Events;
-    let (env, client, admin, usdc) = setup();
-    let contract_id = client.address.clone();
-    let cfg = QuorumCfg { min_voters: 3, yes_must_exceed_no: true };
-    let w = weights(&env, &[]); // no eligible voters
+    let env = Env::default();
     env.mock_all_auths();
-    client.init(&admin, &usdc, &cfg, &w);
+    let (gov, _v) = deploy_with_committed_root(&env); // strict quorum, no votes
+    let contract_id = gov.address.clone();
     set_time(&env, 1_000);
     let spec = sample_spec(&env);
-    let id = client.create_proposal(&spec, &15_000i128, &2_000u64);
+    let id = gov.create_proposal(&spec, &15_000i128, &2_000u64);
     set_time(&env, 2_001);
-    client.close(&id);
+    gov.close(&id);
 
     // approved=false (0 voters < min 3), weighted_yes=0, weighted_no=0
     let closed = crate::ProposalClosed { id, approved: false, weighted_yes: 0i128, weighted_no: 0i128 };
@@ -415,228 +491,184 @@ fn test_close_emits_proposalclosed_event() {
     );
 }
 
-// Approve-path event payload: a passing proposal emits ProposalClosed{approved:true, weighted_yes, weighted_no}.
 #[test]
 fn test_close_emits_proposalclosed_event_approved() {
     use soroban_sdk::Event;
     use soroban_sdk::testutils::Events;
-    let (env, client, admin, usdc) = setup();
-    let contract_id = client.address.clone();
-    let v1 = Address::generate(&env);
-    let v2 = Address::generate(&env);
-    let v3 = Address::generate(&env);
-    let w = weights(&env, &[(v1.clone(), 10), (v2.clone(), 10), (v3.clone(), 10)]);
-    let cfg = QuorumCfg { min_voters: 3, yes_must_exceed_no: true };
+    let env = Env::default();
     env.mock_all_auths();
-    client.init(&admin, &usdc, &cfg, &w);
-    set_time(&env, 1_000);
-    let spec = sample_spec(&env);
-    let id = client.create_proposal(&spec, &15_000i128, &2_000u64);
-    client.cast_vote(&id, &v1, &1u32);
-    client.cast_vote(&id, &v2, &1u32);
-    client.cast_vote(&id, &v3, &1u32);
-    set_time(&env, 2_001);
-    client.close(&id);
-
-    // The LAST emitted event must be the approved ProposalClosed. We compare it directly by
-    // indexing the XDR slice's last entry against the typed event's to_xdr form.
-    let closed = crate::ProposalClosed { id, approved: true, weighted_yes: 30i128, weighted_no: 0i128 };
+    let (gov, id) = approved_proposal(&env);
+    let contract_id = gov.address.clone();
+    // The LAST emitted event must be the approved ProposalClosed (weighted 0/0 in M4).
+    let closed = crate::ProposalClosed { id, approved: true, weighted_yes: 0i128, weighted_no: 0i128 };
     let all = env.events().all();
-    let xdr_events = all.events(); // &[xdr::ContractEvent], oldest -> newest
+    let xdr_events = all.events();
     let last = xdr_events.last().unwrap().clone();
     assert_eq!(last, closed.to_xdr(&env, &contract_id));
 }
 
 // ============================================================================
-// Task 9B — read accessors is_approved / cap_of / action_of (+ ProposalNotFound negatives)
+// read accessors is_approved / cap_of / action_of (+ ProposalNotFound negatives)
 // ============================================================================
 
 #[test]
 fn test_is_approved_reflects_status() {
-    let (env, client, admin, usdc) = setup();
-    let approved_id = vote_scenario(&env, &client, &admin, &usdc, 3, 0, 2_000);
-    set_time(&env, 2_001);
-    client.close(&approved_id);
-    assert_eq!(client.is_approved(&approved_id), true);
+    let env = Env::default();
+    env.mock_all_auths();
+    let (gov, id) = approved_proposal(&env);
+    assert_eq!(gov.is_approved(&id), true);
 }
 
 #[test]
 fn test_is_approved_false_for_rejected() {
-    let (env, client, admin, usdc) = setup();
-    let id = vote_scenario(&env, &client, &admin, &usdc, 2, 0, 2_000); // <3 voters -> Rejected
+    let env = Env::default();
+    env.mock_all_auths();
+    // strict quorum, single vote -> Rejected (participation < 3).
+    let (gov, _v) = deploy_with_committed_root(&env);
+    set_time(&env, 1_000);
+    let spec = sample_spec(&env);
+    let id = gov.create_proposal(&spec, &15_000i128, &2_000u64);
+    gov.cast_vote(&id, &committed_proof(&env), &committed_public_signals(&env), &committed_sealed(&env));
     set_time(&env, 2_001);
-    client.close(&id);
-    assert_eq!(client.is_approved(&id), false);
+    gov.close(&id);
+    assert_eq!(gov.is_approved(&id), false);
 }
 
 #[test]
 fn test_cap_of_and_action_of_return_stored_values() {
-    let (env, client, admin, usdc) = setup();
-    init_default(&env, &client, &admin, &usdc);
-    // give the proposal a future deadline relative to default ledger time (0)
+    let env = Env::default();
+    env.mock_all_auths();
+    let (gov, _v) = deploy_with_committed_root(&env);
     let spec = sample_spec(&env);
-    let id = client.create_proposal(&spec, &15_000i128, &2_000_000_000u64);
-    assert_eq!(client.cap_of(&id), 15_000);
-    assert_eq!(client.action_of(&id), spec);
+    let id = gov.create_proposal(&spec, &15_000i128, &2_000_000_000u64);
+    assert_eq!(gov.cap_of(&id), 15_000);
+    assert_eq!(gov.action_of(&id), spec);
 }
 
 #[test]
 fn test_cap_of_not_found_panics() {
-    let (env, client, admin, usdc) = setup();
-    init_default(&env, &client, &admin, &usdc);
-    assert_eq!(client.try_cap_of(&123u32), Err(Ok(GovError::ProposalNotFound)));
+    let env = Env::default();
+    env.mock_all_auths();
+    let (gov, _v) = deploy_with_committed_root(&env);
+    assert_eq!(gov.try_cap_of(&123u32), Err(Ok(GovError::ProposalNotFound)));
 }
 
 #[test]
 fn test_action_of_not_found_panics() {
-    let (env, client, admin, usdc) = setup();
-    init_default(&env, &client, &admin, &usdc);
-    assert_eq!(client.try_action_of(&123u32), Err(Ok(GovError::ProposalNotFound)));
+    let env = Env::default();
+    env.mock_all_auths();
+    let (gov, _v) = deploy_with_committed_root(&env);
+    assert_eq!(gov.try_action_of(&123u32), Err(Ok(GovError::ProposalNotFound)));
 }
 
 // ============================================================================
-// Task 10 — mark_executed single-shot replay guard (+ Task 17 integration tests)
+// mark_executed single-shot replay guard
 // ============================================================================
 
 #[test]
 fn test_mark_executed_single_shot() {
-    let (env, client, admin, usdc) = setup();
-    let id = vote_scenario(&env, &client, &admin, &usdc, 3, 0, 2_000);
-    set_time(&env, 2_001);
-    client.close(&id);
-    assert_eq!(client.is_approved(&id), true);
-    // M2-0c: configure + authorize the executor (the gate). mock_all_auths (set in vote_scenario)
-    // still satisfies the executor's require_auth, but the executor is now explicit.
+    let env = Env::default();
+    env.mock_all_auths();
+    let (gov, id) = approved_proposal(&env);
+    assert_eq!(gov.is_approved(&id), true);
     let agent = Address::generate(&env);
-    client.set_executor(&agent);
-    client.mark_executed(&id);
-    let view = client.proposal(&id);
+    gov.set_executor(&agent);
+    gov.mark_executed(&id);
+    let view = gov.proposal(&id);
     assert_eq!(view.status, ProposalStatus::Executed);
-    // second call must be rejected (single-shot)
-    assert_eq!(client.try_mark_executed(&id), Err(Ok(GovError::AlreadyExecuted)));
+    assert_eq!(gov.try_mark_executed(&id), Err(Ok(GovError::AlreadyExecuted)));
 }
 
 #[test]
 fn test_mark_executed_requires_approved() {
-    let (env, client, admin, usdc) = setup();
-    // rejected proposal (low participation)
-    let id = vote_scenario(&env, &client, &admin, &usdc, 2, 0, 2_000);
+    let env = Env::default();
+    env.mock_all_auths();
+    // strict quorum, single vote -> Rejected.
+    let (gov, _v) = deploy_with_committed_root(&env);
+    set_time(&env, 1_000);
+    let spec = sample_spec(&env);
+    let id = gov.create_proposal(&spec, &15_000i128, &2_000u64);
+    gov.cast_vote(&id, &committed_proof(&env), &committed_public_signals(&env), &committed_sealed(&env));
     set_time(&env, 2_001);
-    client.close(&id);
-    assert_eq!(client.is_approved(&id), false);
-    // M2-0c: executor configured + authorized; the NotApproved business rule is what rejects.
+    gov.close(&id);
+    assert_eq!(gov.is_approved(&id), false);
     let agent = Address::generate(&env);
-    client.set_executor(&agent);
-    assert_eq!(client.try_mark_executed(&id), Err(Ok(GovError::NotApproved)));
+    gov.set_executor(&agent);
+    assert_eq!(gov.try_mark_executed(&id), Err(Ok(GovError::NotApproved)));
 }
 
-// ---- Task 17: end-to-end integration tests (authored here for a genuine shared red) ----
+// ---- integration: sealed vote -> approve -> execute ----
 
 #[test]
 fn integration_vote_to_approve_flow() {
-    let (env, client, admin, usdc) = setup();
-    // snapshot of 3 eligible voters with distinct weights
-    let v_yes_a = Address::generate(&env);
-    let v_yes_b = Address::generate(&env);
-    let v_no    = Address::generate(&env);
-    let w = weights(&env, &[
-        (v_yes_a.clone(), 30),
-        (v_yes_b.clone(), 25),
-        (v_no.clone(), 40),
-    ]);
-    let cfg = QuorumCfg { min_voters: 3, yes_must_exceed_no: true };
+    let env = Env::default();
     env.mock_all_auths();
-    client.init(&admin, &usdc, &cfg, &w);
+    let (gov, _v) = deploy_lenient(&env);
     set_time(&env, 1_000);
-
     let spec = sample_spec(&env);
-    let id = client.create_proposal(&spec, &15_000i128, &2_000u64);
-    assert_eq!(client.proposal(&id).status, ProposalStatus::Open);
+    let id = gov.create_proposal(&spec, &15_000i128, &2_000u64);
+    assert_eq!(gov.proposal(&id).status, ProposalStatus::Open);
 
-    // votes: yes=30+25=55, no=40 ; 3 voters
-    client.cast_vote(&id, &v_yes_a, &1u32);
-    client.cast_vote(&id, &v_yes_b, &1u32);
-    client.cast_vote(&id, &v_no,    &0u32);
-    assert_eq!(client.votes_cast(&id), 3);
-    // NO tally exposed before close (privacy invariant, even in plaintext M1)
-    assert_eq!(client.proposal(&id).weighted_yes, None);
+    gov.cast_vote(&id, &committed_proof(&env), &committed_public_signals(&env), &committed_sealed(&env));
+    assert_eq!(gov.votes_cast(&id), 1);
+    // NO tally exposed before close (privacy invariant).
+    assert_eq!(gov.proposal(&id).weighted_yes, None);
 
-    // close after deadline
     set_time(&env, 2_001);
-    client.close(&id);
+    gov.close(&id);
 
-    // real on-chain state: approved, weighted tally set
-    let view = client.proposal(&id);
+    let view = gov.proposal(&id);
     assert_eq!(view.status, ProposalStatus::Approved);
-    assert_eq!(view.weighted_yes, Some(55));
-    assert_eq!(view.weighted_no, Some(40));
-    assert_eq!(client.is_approved(&id), true);
-    assert_eq!(client.cap_of(&id), 15_000);
-    assert_eq!(client.action_of(&id), spec);
+    assert_eq!(gov.is_approved(&id), true);
+    assert_eq!(gov.cap_of(&id), 15_000);
+    assert_eq!(gov.action_of(&id), spec);
 
-    // M2-0c: configure the executor (the AgentPolicy smart-account wallet) before single-shot exec.
     let agent = Address::generate(&env);
-    client.set_executor(&agent);
-
-    // execute single-shot
-    client.mark_executed(&id);
-    assert_eq!(client.proposal(&id).status, ProposalStatus::Executed);
-    assert_eq!(client.try_mark_executed(&id), Err(Ok(GovError::AlreadyExecuted)));
+    gov.set_executor(&agent);
+    gov.mark_executed(&id);
+    assert_eq!(gov.proposal(&id).status, ProposalStatus::Executed);
+    assert_eq!(gov.try_mark_executed(&id), Err(Ok(GovError::AlreadyExecuted)));
 }
 
 #[test]
 fn integration_no_quorum_blocks_execution() {
-    let (env, client, admin, usdc) = setup();
-    // only 2 voters -> participation < 3 -> Rejected -> cannot execute
-    let a = Address::generate(&env);
-    let b = Address::generate(&env);
-    let w = weights(&env, &[(a.clone(), 10), (b.clone(), 10)]);
-    let cfg = QuorumCfg { min_voters: 3, yes_must_exceed_no: true };
+    let env = Env::default();
     env.mock_all_auths();
-    client.init(&admin, &usdc, &cfg, &w);
+    // strict quorum, single vote -> Rejected -> cannot execute.
+    let (gov, _v) = deploy_with_committed_root(&env);
     set_time(&env, 1_000);
     let spec = sample_spec(&env);
-    let id = client.create_proposal(&spec, &15_000i128, &2_000u64);
-    client.cast_vote(&id, &a, &1u32);
-    client.cast_vote(&id, &b, &1u32);
+    let id = gov.create_proposal(&spec, &15_000i128, &2_000u64);
+    gov.cast_vote(&id, &committed_proof(&env), &committed_public_signals(&env), &committed_sealed(&env));
     set_time(&env, 2_001);
-    client.close(&id);
-    assert_eq!(client.is_approved(&id), false);
-    // execution blocked on-chain (set_executor + authorize, so the auth gate is exercised, not the
-    // missing-executor path — the NotApproved business rule is what must reject this).
-    client.set_executor(&a);
-    assert_eq!(client.try_mark_executed(&id), Err(Ok(GovError::NotApproved)));
+    gov.close(&id);
+    assert_eq!(gov.is_approved(&id), false);
+    let agent = Address::generate(&env);
+    gov.set_executor(&agent);
+    assert_eq!(gov.try_mark_executed(&id), Err(Ok(GovError::NotApproved)));
 }
 
 // ============================================================================
-// Task M2-0c — tighten mark_executed to require_auth on the configured executor
-//   (foundation §2.2 auth gate: ONLY the AgentPolicy address set via set_executor may mark).
+// mark_executed auth gate: configured executor only (foundation §2.2)
 // ============================================================================
 use soroban_sdk::testutils::{MockAuth, MockAuthInvoke};
 use soroban_sdk::{vec as sdk_vec, IntoVal};
 
-// A configured executor, authorized for the mark_executed call, succeeds and the proposal
-// transitions to Executed. Auth is scoped to ONLY the executor (real auth, not mock_all_auths),
-// so the gate is genuinely satisfied by the configured address.
 #[test]
 fn mark_executed_allows_configured_executor() {
-    let (env, client, admin, usdc) = setup();
-    // Build an approved proposal via the existing helper (uses mock_all_auths internally).
-    let id = vote_scenario(&env, &client, &admin, &usdc, 3, 0, 2_000);
-    set_time(&env, 2_001);
-    client.close(&id);
-    assert_eq!(client.is_approved(&id), true);
+    let env = Env::default();
+    env.mock_all_auths();
+    let (gov, id) = approved_proposal(&env);
+    assert_eq!(gov.is_approved(&id), true);
 
-    // Configure the executor (admin-auth). mock_all_auths from vote_scenario still covers this.
     let agent = Address::generate(&env);
-    client.set_executor(&agent);
+    gov.set_executor(&agent);
 
-    // Now authorize ONLY `agent` for the mark_executed invocation (scoped real auth).
-    client
+    gov
         .mock_auths(&[MockAuth {
             address: &agent,
             invoke: &MockAuthInvoke {
-                contract: &client.address,
+                contract: &gov.address,
                 fn_name: "mark_executed",
                 args: sdk_vec![&env, id.into_val(&env)],
                 sub_invokes: &[],
@@ -644,32 +676,26 @@ fn mark_executed_allows_configured_executor() {
         }])
         .mark_executed(&id);
 
-    assert_eq!(client.proposal(&id).status, ProposalStatus::Executed);
+    assert_eq!(gov.proposal(&id).status, ProposalStatus::Executed);
 }
 
-// A NON-executor caller is rejected because mark_executed require_auths the STORED executor
-// (`agent`), and only a different address (`rogue`) is authorized — the executor's require_auth
-// is unsatisfied, so the host rejects the call.
 #[test]
 #[should_panic] // host auth failure: the configured executor `agent` did not authorize the call
 fn mark_executed_rejects_non_executor() {
-    let (env, client, admin, usdc) = setup();
-    let id = vote_scenario(&env, &client, &admin, &usdc, 3, 0, 2_000);
-    set_time(&env, 2_001);
-    client.close(&id);
-    assert_eq!(client.is_approved(&id), true);
+    let env = Env::default();
+    env.mock_all_auths();
+    let (gov, id) = approved_proposal(&env);
+    assert_eq!(gov.is_approved(&id), true);
 
     let agent = Address::generate(&env);
     let rogue = Address::generate(&env);
-    client.set_executor(&agent);
+    gov.set_executor(&agent);
 
-    // Authorize ONLY `rogue` — NOT the configured executor `agent`. mark_executed require_auths
-    // `agent`, which is unsatisfied here, so the host auth check must reject this call.
-    client
+    gov
         .mock_auths(&[MockAuth {
             address: &rogue,
             invoke: &MockAuthInvoke {
-                contract: &client.address,
+                contract: &gov.address,
                 fn_name: "mark_executed",
                 args: sdk_vec![&env, id.into_val(&env)],
                 sub_invokes: &[],
