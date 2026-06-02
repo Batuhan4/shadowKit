@@ -1,0 +1,38 @@
+# Node / TS
+node_modules/
+dist/
+build/
+.turbo/
+*.tsbuildinfo
+coverage/
+
+# Rust / Soroban
+target/
+**/target/
+*.wasm
+
+# Circom / snarkjs artifacts (keep committed fixtures under circuits/fixtures/)
+*.r1cs
+*.zkey
+*.ptau
+circuits/**/*_js/
+circuits/**/*.sym
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# Stellar / local
+.stellar/
+.soroban/
+*.log
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
