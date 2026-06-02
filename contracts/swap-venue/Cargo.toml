@@ -5,6 +5,7 @@ edition = { workspace = true }
 publish = false
 
 [lib]
+crate-type = ["rlib"]
 doctest = false
 
 [dependencies]
