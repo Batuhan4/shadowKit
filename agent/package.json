@@ -6,5 +6,9 @@
   "main": "./src/index.ts",
   "exports": { ".": "./src/index.ts" },
   "scripts": { "test": "vitest run" },
-  "dependencies": { "@shadowkit/shared": "0.1.0" }
+  "dependencies": {
+    "@shadowkit/shared": "0.1.0",
+    "@stellar/stellar-sdk": "^14.6.1"
+  },
+  "devDependencies": { "vitest": "4.1.7" }
 }
