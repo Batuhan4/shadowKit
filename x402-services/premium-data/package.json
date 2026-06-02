@@ -4,5 +4,21 @@
   "private": true,
   "type": "module",
   "main": "./src/server.ts",
-  "scripts": { "test": "vitest run" }
+  "exports": {
+    ".": "./src/server.ts",
+    "./server": "./src/server.ts"
+  },
+  "scripts": {
+    "start": "node --experimental-strip-types src/main.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@shadowkit/x402-shared": "0.1.0",
+    "express": "5.2.1"
+  },
+  "devDependencies": {
+    "vitest": "4.1.7",
+    "@types/express": "5.0.0",
+    "@stellar/stellar-sdk": "^14.6.1"
+  }
 }
