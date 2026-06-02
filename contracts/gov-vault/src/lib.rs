@@ -2,6 +2,8 @@
 mod storage;
 #[cfg(test)]
 mod test;
+#[cfg(test)]
+mod test_fixtures;
 
 use soroban_sdk::{contract, contracterror};
 
@@ -27,20 +29,20 @@ pub enum GovError {
     RevealMismatch     = 13,
     AlreadyExecuted    = 14,
     NotApproved        = 15,
-    // M1-additive plaintext errors (recorded divergence):
-    AlreadyVoted       = 16, // plaintext double-vote by same voter
-    NotEligible        = 17, // voter not in snapshot weight map
-    ZeroWeight         = 18, // voter weight <= 0
+    // M1-additive plaintext errors (recorded divergence; kept for the unchanged plaintext `close`):
+    AlreadyVoted       = 16, // (M1; sealed cast_vote uses NullifierUsed instead)
+    NotEligible        = 17, // (M1; sealed cast_vote uses StaleMerkleRoot/the proof instead)
+    ZeroWeight         = 18, // (reserved)
     QuorumNotMet       = 19, // (reserved; close sets Rejected, does not error)
-    InvalidDirection   = 20, // cast_vote direction was neither 0 (no) nor 1 (yes)
+    InvalidDirection   = 20, // (M1; reserved)
     ProposalAmountOverCap = 21, // create_proposal: action_spec.amount > cap (or <= 0)
     DeadlineInPast     = 22, // create_proposal: deadline <= current ledger timestamp
 }
 
-use soroban_sdk::{contractevent, contractimpl, Address, BytesN, Env, Map};
-use soroban_sdk::xdr::ToXdr;
-use shadowkit_shared::{ActionSpec, ProposalView, ProposalStatus, QuorumCfg};
+use soroban_sdk::{contractevent, contractimpl, Address, Bytes, BytesN, Env, Vec};
+use shadowkit_shared::{ActionSpec, ProposalView, ProposalStatus, QuorumCfg, SealedVote};
 use crate::storage::ProposalRecord;
+use groth16_verifier::{Bls12381Fr, Groth16VerifierClient, Proof};
 
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -58,39 +60,64 @@ pub struct ProposalClosed { #[topic] pub id: u32, pub approved: bool, pub weight
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProposalExecuted { #[topic] pub id: u32 }
 
+// index constants for the BINDING public-signal vector
+// [merkleRoot, nullifier, proposalId, sealedCommitmentHash] (foundation §4).
+const PS_MERKLE_ROOT: u32 = 0;
+const PS_NULLIFIER: u32 = 1;
+const PS_PROPOSAL_ID: u32 = 2;
+const PS_SEALED_COMMIT: u32 = 3;
+
+// ---- Fr <-> bytes helpers (Task 4.21b; direct unit tests in test.rs) ----
+// VERIFIED (soroban-sdk 26.0.1): Fr::to_u256(&self)->U256; U256::to_be_bytes(&self)->Bytes (32 bytes);
+// inverse of the verifier test's Fr::from_u256(U256::from_be_bytes(..)) round-trip.
+pub(crate) fn fr_to_bytes32(env: &Env, f: &Bls12381Fr) -> BytesN<32> {
+    let u = f.to_u256();
+    let b: Bytes = u.to_be_bytes();
+    let mut arr = [0u8; 32];
+    for i in 0..32 {
+        arr[i] = b.get(i as u32).unwrap();
+    }
+    BytesN::from_array(env, &arr)
+}
+pub(crate) fn fr_eq_bytes32(env: &Env, f: &Bls12381Fr, b: &BytesN<32>) -> bool {
+    fr_to_bytes32(env, f) == *b
+}
+pub(crate) fn fr_eq_u32(env: &Env, f: &Bls12381Fr, n: u32) -> bool {
+    let mut arr = [0u8; 32];
+    arr[28..32].copy_from_slice(&n.to_be_bytes());
+    fr_to_bytes32(env, f) == BytesN::from_array(env, &arr)
+}
+
 #[contractimpl]
 impl GovVault {
-    /// Initialize once. `vote_weights` is the M1 plaintext snapshot (voter -> token weight).
+    /// Initialize once (foundation §2.2). Reintroduces verifier + merkle_root (M1 deferred them).
+    /// `vote_weights` is RETIRED: the snapshot Merkle root + zk proof replace per-address weights.
     /// Admin must auth. Default quorum_cfg per foundation §5: {min_voters:3, yes_must_exceed_no:true}.
     pub fn init(
         env: Env,
         admin: Address,
-        treasury_asset: Address,
+        verifier: Address,        // Groth16Verifier contract id
+        merkle_root: BytesN<32>,  // snapshot root (Poseidon, big-endian 32 bytes)
+        treasury_asset: Address,  // SAC of the treasury asset
         quorum_cfg: QuorumCfg,
-        vote_weights: Map<Address, i128>,
     ) -> Result<(), GovError> {
         if storage::is_initialized(&env) {
             return Err(GovError::AlreadyInitialized);
         }
         admin.require_auth();
         storage::set_admin(&env, &admin);
+        storage::set_verifier(&env, &verifier);
+        storage::set_merkle_root(&env, &merkle_root);
         storage::set_treasury_asset(&env, &treasury_asset);
         storage::set_quorum_cfg(&env, &quorum_cfg);
-        storage::set_vote_weights(&env, &vote_weights);
         env.storage().instance().set(&storage::DataKey::NextId, &0u32);
         Ok(())
-    }
-
-    /// Read a voter's snapshot weight (0 if not eligible). View; no auth.
-    pub fn weight_of(env: Env, voter: Address) -> i128 {
-        storage::get_vote_weights(&env).get(voter).unwrap_or(0)
     }
 
     /// Create a proposal. Sequential u32 id starting at 0. `cap` bounds ActionSpec.amount;
     /// `deadline` = unix-seconds ledger timestamp. Admin auth required.
     /// INVARIANTS (foundation §5 / §2.6 / spec §9): ActionSpec.amount must be in (0, cap]; the
-    /// deadline must be strictly in the future. These guarantee the cap invariant that AgentPolicy
-    /// (M2) and the safeguard "amount <= proposal cap" rely on, and that the proposal is votable.
+    /// deadline must be strictly in the future.
     pub fn create_proposal(
         env: Env,
         action_spec: ActionSpec,
@@ -99,11 +126,9 @@ impl GovVault {
     ) -> Result<u32, GovError> {
         let admin = storage::get_admin(&env);
         admin.require_auth();
-        // cap invariant: 0 < amount <= cap
         if action_spec.amount <= 0 || action_spec.amount > cap {
             return Err(GovError::ProposalAmountOverCap);
         }
-        // deadline must be in the future
         if deadline <= env.ledger().timestamp() {
             return Err(GovError::DeadlineInPast);
         }
@@ -134,63 +159,18 @@ impl GovVault {
     }
 
     /// Participation count (safe — no direction).
-    pub fn votes_cast(env: Env, id: u32) -> u32 {
-        storage::get_proposal(&env, id).votes_cast
+    pub fn votes_cast(env: Env, id: u32) -> Result<u32, GovError> {
+        match storage::try_get_proposal(&env, id) {
+            Some(rec) => Ok(rec.votes_cast),
+            None => Err(GovError::ProposalNotFound),
+        }
     }
 
-    /// PLAINTEXT vote (M1). `voter` must auth; `direction` is 1 (yes) or 0 (no).
-    /// Reads the voter's snapshot weight, prevents double-vote, enforces deadline,
-    /// updates the running plaintext tally (kept private until `close`), bumps participation.
-    /// M4/M5 REPLACE this with the sealed signature (foundation §2.2).
-    /// CARRY-FORWARD: returns Result<(), GovError> (NOT panic_with_error!) so the charter's
-    /// try_cast_vote() == Err(Ok(GovError::X)) negatives hold.
-    pub fn cast_vote(env: Env, id: u32, voter: Address, direction: u32) -> Result<(), GovError> {
-        voter.require_auth();
-        let mut rec = storage::get_proposal(&env, id);
-        // deadline: cast must be at/before deadline
-        if env.ledger().timestamp() > rec.deadline {
-            return Err(GovError::DeadlinePassed);
-        }
-        // direction must be a bit (0 or 1). Use a DEDICATED M1-additive error, NOT the binding
-        // InvalidProof (code 9, whose foundation §2.2 meaning is "groth16 verify returned false").
-        if direction != 0 && direction != 1 {
-            return Err(GovError::InvalidDirection);
-        }
-        // eligibility + weight
-        let weight = storage::get_vote_weights(&env).get(voter.clone()).unwrap_or(0);
-        if weight <= 0 {
-            return Err(GovError::NotEligible);
-        }
-        // double-vote guard (plaintext analogue of nullifier)
-        if storage::has_voted(&env, id, &voter) {
-            return Err(GovError::AlreadyVoted);
-        }
-        storage::mark_voted(&env, id, &voter);
-        if direction == 1 {
-            storage::add_yes(&env, id, weight);
-        } else {
-            storage::add_no(&env, id, weight);
-        }
-        rec.votes_cast += 1;
-        storage::set_proposal(&env, id, &rec);
-        // VoteCast event: foundation §2.2 uses BytesN<32> nullifier; M1 has no nullifier,
-        // so we emit a deterministic voter-derived 32-byte id (sha256 of the voter's XDR bytes) to keep
-        // the binding event shape stable. Recorded divergence.
-        // .to_bytes() is the documented Hash<32> -> BytesN<32> conversion (verified SDK 26.0.1
-        // src/crypto.rs: sha256 -> Hash<32>; Hash::to_bytes -> BytesN<N>).
-        let voter_id: BytesN<32> = env.crypto().sha256(&voter.clone().to_xdr(&env)).to_bytes();
-        VoteCast { id, nullifier: voter_id }.publish(&env);
-        Ok(())
-    }
-
-    /// Close after deadline: compute plaintext weighted tally from running yes/no weights,
-    /// apply QuorumCfg (yes>no AND votes_cast>=min_voters), set Approved|Rejected. Single close only.
-    /// M1 PLAINTEXT analogue of foundation §2.2 close_and_reveal (no sealed votes / re-aggregation).
-    /// DIVERGENCE (recorded, see task header): M1 transitions Open -> Approved|Rejected atomically and
-    /// never sets ProposalStatus::Tallying (no observable intermediate window in single-shot plaintext
-    /// close). M5's multi-step close_and_reveal is where Tallying becomes observable.
-    /// CARRY-FORWARD: returns Result<(), GovError> (NOT panic_with_error!) so the charter's
-    /// try_close() == Err(Ok(GovError::X)) negatives hold.
+    /// Close after deadline: compute plaintext weighted tally from running yes/no weights (M4 sealed
+    /// votes do NOT feed these, so weighted_yes/no are 0 until M5's close_and_reveal), apply QuorumCfg
+    /// (majority + votes_cast>=min_voters), set Approved|Rejected. Single close only.
+    /// M1 PLAINTEXT analogue of foundation §2.2 close_and_reveal — kept UNCHANGED in M4 (M5 replaces it).
+    /// CARRY-FORWARD: returns Result<(), GovError> (NOT panic_with_error!).
     pub fn close(env: Env, id: u32) -> Result<(), GovError> {
         let mut rec = storage::get_proposal(&env, id);
         if rec.weighted_yes.is_some() {
@@ -214,7 +194,6 @@ impl GovVault {
     }
 
     /// True iff status == Approved (read by AgentPolicy in M2). View; no auth.
-    /// Returns false for an absent proposal (it is, trivially, not approved).
     pub fn is_approved(env: Env, id: u32) -> bool {
         match storage::try_get_proposal(&env, id) {
             Some(rec) => rec.status == ProposalStatus::Approved,
@@ -223,8 +202,6 @@ impl GovVault {
     }
 
     /// Approved-proposal spending cap (read by AgentPolicy). ProposalNotFound if absent.
-    /// CARRY-FORWARD: returns Result<i128, GovError> (NOT panic_with_error!) so the charter's
-    /// try_cap_of() == Err(Ok(GovError::ProposalNotFound)) negative holds.
     pub fn cap_of(env: Env, id: u32) -> Result<i128, GovError> {
         match storage::try_get_proposal(&env, id) {
             Some(rec) => Ok(rec.cap),
@@ -233,7 +210,6 @@ impl GovVault {
     }
 
     /// The approved ActionSpec (read by AgentPolicy). ProposalNotFound if absent.
-    /// CARRY-FORWARD: returns Result<ActionSpec, GovError> (NOT panic_with_error!).
     pub fn action_of(env: Env, id: u32) -> Result<ActionSpec, GovError> {
         match storage::try_get_proposal(&env, id) {
             Some(rec) => Ok(rec.action_spec),
@@ -242,10 +218,7 @@ impl GovVault {
     }
 
     /// Configure the authorized executor (the AgentPolicy smart-account wallet address) permitted to
-    /// call `mark_executed`. Admin-auth (`admin.require_auth()`). Stored at `DataKey::Executor`.
-    /// Idempotent (admin may re-point it). Set after AgentPolicy is deployed (M2 wires this into the
-    /// deploy/config flow). This is the "configured AgentPolicy address" referenced by the
-    /// `mark_executed` auth gate (foundation §2.2). Task M2-0c.
+    /// call `mark_executed`. Admin-auth. Stored at `DataKey::Executor`. Idempotent.
     pub fn set_executor(env: Env, executor: Address) -> Result<(), GovError> {
         let admin = storage::get_admin(&env);
         admin.require_auth();
@@ -254,15 +227,9 @@ impl GovVault {
     }
 
     /// Single-shot replay guard. Requires status==Approved & not executed. Sets status -> Executed.
-    /// AUTH (foundation §2.2, NEW in M2 / Task M2-0c): ONLY the configured executor (the AgentPolicy
-    /// address stored at `DataKey::Executor` via `set_executor`) may call this — `mark_executed`
-    /// reads `DataKey::Executor` and `require_auth`s it. A non-executor caller is rejected by the host
-    /// auth check (the executor's `require_auth` is unsatisfied), NOT by a GovError. The Executor in
-    /// the hero-loop integration (M2-6) is the AgentPolicy smart-account wallet.
-    /// CARRY-FORWARD: returns Result<(), GovError> (NOT panic_with_error!) so the charter's
-    /// try_mark_executed() == Err(Ok(GovError::X)) business-rule negatives hold.
+    /// AUTH (foundation §2.2): ONLY the configured executor (DataKey::Executor) may call this.
+    /// CARRY-FORWARD: returns Result<(), GovError> (NOT panic_with_error!).
     pub fn mark_executed(env: Env, id: u32) -> Result<(), GovError> {
-        // The foundation §2.2 auth gate: only the configured AgentPolicy executor may mark.
         storage::get_executor(&env).require_auth();
         let mut rec = storage::get_proposal(&env, id);
         if rec.executed || rec.status == ProposalStatus::Executed {
@@ -276,5 +243,120 @@ impl GovVault {
         storage::set_proposal(&env, id, &rec);
         ProposalExecuted { id }.publish(&env);
         Ok(())
+    }
+}
+
+impl GovVault {
+    // Shared sealed-vote body. The `verified` parameter exists only under the offchain-verify feature.
+    // Guards (foundation §2.2): deadline -> nullifier-used -> proposalId-binding -> stale-root ->
+    // sealed-commitment -> on-chain verify -> commit. NO TALLY exposed.
+    fn cast_vote_inner(
+        env: Env,
+        id: u32,
+        proof: Proof,
+        pub_signals: Vec<Bls12381Fr>,
+        sealed_ciphertext: SealedVote,
+        #[cfg(feature = "offchain-verify")] verified: bool,
+    ) -> Result<(), GovError> {
+        // 0) proposal exists.
+        let mut rec = match storage::try_get_proposal(&env, id) {
+            Some(r) => r,
+            None => return Err(GovError::ProposalNotFound),
+        };
+        // 0a) reject votes cast at/after the deadline.
+        if env.ledger().timestamp() >= rec.deadline {
+            return Err(GovError::DeadlinePassed);
+        }
+        // 1) public-signal sanity: exactly 4.
+        if pub_signals.len() != 4 {
+            return Err(GovError::InvalidProof);
+        }
+        // 2) compute the nullifier (used to commit).
+        let nullifier = fr_to_bytes32(&env, &pub_signals.get(PS_NULLIFIER).unwrap());
+        // 2a) double-vote guard: this nullifier must not have been used before.
+        if storage::nullifier_used(&env, &nullifier) {
+            return Err(GovError::NullifierUsed);
+        }
+        // 2b) proposalId signal == id: binds the proof to THIS proposal => cross-proposal replay fails.
+        if !fr_eq_u32(&env, &pub_signals.get(PS_PROPOSAL_ID).unwrap(), id) {
+            return Err(GovError::WrongProposalId);
+        }
+        // 2c) merkleRoot signal == stored snapshot root (anti-stale: vote against the live snapshot).
+        let stored_root: BytesN<32> = storage::get_merkle_root(&env);
+        if !fr_eq_bytes32(&env, &pub_signals.get(PS_MERKLE_ROOT).unwrap(), &stored_root) {
+            return Err(GovError::StaleMerkleRoot);
+        }
+        // 2d) sealedCommitmentHash signal == ciphertext's commitment (binds proof <-> stored blob).
+        if !fr_eq_bytes32(&env, &pub_signals.get(PS_SEALED_COMMIT).unwrap(), &sealed_ciphertext.sealed_commitment_hash) {
+            return Err(GovError::InvalidProof);
+        }
+        // 3) VERIFY the proof on-chain (PRIMARY) or trust the coordinator-asserted flag (FALLBACK).
+        #[cfg(not(feature = "offchain-verify"))]
+        {
+            let verifier = Groth16VerifierClient::new(&env, &storage::get_verifier(&env));
+            if !verifier.verify(&proof, &pub_signals) {
+                return Err(GovError::InvalidProof);
+            }
+        }
+        #[cfg(feature = "offchain-verify")]
+        {
+            // FALLBACK (foundation §2.1): a trusted COORDINATOR pre-verified off-chain via
+            // snarkjs.groth16.verify and authorized this call. Require coordinator/admin auth AND
+            // verified == true. The real off-chain verification lives in the TS coordinator
+            // (verifyAndAuthorize); this branch refuses an unverified flag.
+            let _ = &proof;
+            storage::get_admin(&env).require_auth();
+            if !verified {
+                return Err(GovError::InvalidProof);
+            }
+        }
+        // 4) commit: mark nullifier used, append sealed vote, bump count.
+        storage::mark_nullifier(&env, &nullifier);
+        storage::push_sealed_vote(&env, id, &sealed_ciphertext);
+        rec.votes_cast += 1;
+        storage::set_proposal(&env, id, &rec);
+        VoteCast { id, nullifier }.publish(&env);
+        Ok(())
+    }
+}
+
+// The sealed `cast_vote` entrypoint. PRIMARY (default) build: 5 args (on-chain verify is the gate).
+// FALLBACK build (`feature = "offchain-verify"`): 6 args (trailing `verified: bool` from the trusted
+// coordinator, foundation §2.1). The two builds expose two ABIs — they live in SEPARATE cfg-gated
+// `#[contractimpl]` blocks so the soroban macro emits exactly one `cast_vote` per build.
+#[cfg(not(feature = "offchain-verify"))]
+#[contractimpl]
+impl GovVault {
+    /// Cast a SEALED vote (foundation §2.2). Verifies the proof on-chain, checks nullifier (double-vote)
+    /// + proposalId binding (replay) + deadline + stale-root + sealed-commitment, stores the sealed
+    /// ciphertext. EXPOSES NO TALLY. `pub_signals` order BINDING: [merkleRoot, nullifier, proposalId,
+    /// sealedCommitmentHash].
+    /// CARRY-FORWARD: returns Result<(), GovError> (NOT panic_with_error!) so try_cast_vote() ==
+    /// Err(Ok(GovError::X)) negatives hold.
+    pub fn cast_vote(
+        env: Env,
+        id: u32,
+        proof: Proof,
+        pub_signals: Vec<Bls12381Fr>,
+        sealed_ciphertext: SealedVote,
+    ) -> Result<(), GovError> {
+        Self::cast_vote_inner(env, id, proof, pub_signals, sealed_ciphertext)
+    }
+}
+
+#[cfg(feature = "offchain-verify")]
+#[contractimpl]
+impl GovVault {
+    /// FALLBACK ABI (foundation §2.1): the trailing `verified: bool` is the trusted-coordinator
+    /// off-chain-verify result.
+    pub fn cast_vote(
+        env: Env,
+        id: u32,
+        proof: Proof,
+        pub_signals: Vec<Bls12381Fr>,
+        sealed_ciphertext: SealedVote,
+        verified: bool,
+    ) -> Result<(), GovError> {
+        Self::cast_vote_inner(env, id, proof, pub_signals, sealed_ciphertext, verified)
     }
 }

@@ -8,9 +8,19 @@ publish = false
 crate-type = ["cdylib", "rlib"]
 doctest = false
 
+[features]
+offchain-verify = []   # FALLBACK: skip on-chain verify, trust coordinator-asserted validity (foundation §2.1)
+
 [dependencies]
 soroban-sdk = { workspace = true }
 shadowkit-shared = { path = "../shared" }
+groth16-verifier = { path = "../groth16-verifier" }
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
+# Fixture loaders reuse the committed circuit fixtures (same arkworks pattern as the verifier test).
+ark-bls12-381 = "0.4"
+ark-serialize = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+groth16-verifier = { path = "../groth16-verifier" }

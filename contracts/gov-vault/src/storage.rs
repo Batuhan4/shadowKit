@@ -1,13 +1,13 @@
-use soroban_sdk::{contracttype, Address, BytesN, Map};
+use soroban_sdk::{contracttype, Address, BytesN, Vec};
 
 /// Storage keys. Binding subset (foundation §2.2): Admin, Verifier, MerkleRoot, TreasuryAsset,
 /// QuorumCfg, Executor, NextId, Proposal(u32), SealedVotes(u32), Nullifier(BytesN<32>).
-/// M1-additive plaintext keys (recorded divergence — see plan header): VoteWeights, VoterVoted,
-/// YesWeight, NoWeight. These are M1's plaintext mechanism; M4/M5 replace VoterVoted/YesWeight/NoWeight
-/// with the SealedVotes + Nullifier flow. Verifier/MerkleRoot are unused in M1 but kept in the enum
-/// so the binding discriminant order never changes. `Executor` (foundation §2.2) is the authorized
-/// `mark_executed` caller (the AgentPolicy address); it is kept in the enum here (discriminant order)
-/// and POPULATED in M2 via `set_executor` (M1 ships `mark_executed` without the auth gate; M2 tightens it).
+/// M4 (Task 4.19a) reintroduces Verifier/MerkleRoot (M1 deferred them) and POPULATES SealedVotes +
+/// Nullifier via the sealed `cast_vote`. The M1 plaintext VoteWeights/VoterVoted snapshot path was
+/// RETIRED in M4: the snapshot Merkle root + zk proof replace per-address weights. YesWeight/NoWeight
+/// remain (M1 plaintext `close` machinery, kept UNCHANGED — M5 replaces close with close_and_reveal).
+/// `Executor` (foundation §2.2) is the authorized `mark_executed` caller (the AgentPolicy address);
+/// POPULATED in M2 via `set_executor`.
 #[contracttype]
 #[derive(Clone)]
 pub enum DataKey {
@@ -19,11 +19,9 @@ pub enum DataKey {
     Executor,              // Address (instance) — AgentPolicy id; set via set_executor in M2; auth for mark_executed
     NextId,                // u32 (instance)
     Proposal(u32),         // ProposalRecord (persistent)
-    SealedVotes(u32),      // Vec<SealedVote> (persistent) — M5
-    Nullifier(BytesN<32>), // () (persistent) — M4
-    // ---- M1-additive plaintext keys ----
-    VoteWeights,           // Map<Address,i128> snapshot of eligible voter weights (instance)
-    VoterVoted(u32, Address), // () presence = this voter voted on proposal id (persistent)
+    SealedVotes(u32),      // Vec<SealedVote> (persistent) — M4 sealed cast_vote
+    Nullifier(BytesN<32>), // () (persistent) — M4 double-vote guard
+    // ---- M1 plaintext `close` machinery (kept UNCHANGED; M5 retires it) ----
     YesWeight(u32),        // i128 running plaintext yes weight (persistent)
     NoWeight(u32),         // i128 running plaintext no weight (persistent)
 }
@@ -77,12 +75,32 @@ pub fn get_executor(env: &Env) -> Address {
     env.storage().instance().get(&DataKey::Executor)
         .unwrap_or_else(|| panic_with_error!(env, GovError::NotInitialized))
 }
-pub fn set_vote_weights(env: &Env, m: &Map<Address, i128>) {
-    env.storage().instance().set(&DataKey::VoteWeights, m);
+// ---- M4 sealed-vote storage helpers (foundation §2.2) ----
+pub fn get_verifier(env: &Env) -> Address {
+    env.storage().instance().get(&DataKey::Verifier)
+        .unwrap_or_else(|| panic_with_error!(env, GovError::NotInitialized))
 }
-pub fn get_vote_weights(env: &Env) -> Map<Address, i128> {
-    env.storage().instance().get(&DataKey::VoteWeights)
-        .unwrap_or_else(|| Map::new(env))
+pub fn set_verifier(env: &Env, v: &Address) {
+    env.storage().instance().set(&DataKey::Verifier, v);
+}
+pub fn get_merkle_root(env: &Env) -> BytesN<32> {
+    env.storage().instance().get(&DataKey::MerkleRoot)
+        .unwrap_or_else(|| panic_with_error!(env, GovError::NotInitialized))
+}
+pub fn set_merkle_root(env: &Env, r: &BytesN<32>) {
+    env.storage().instance().set(&DataKey::MerkleRoot, r);
+}
+pub fn nullifier_used(env: &Env, n: &BytesN<32>) -> bool {
+    env.storage().persistent().has(&DataKey::Nullifier(n.clone()))
+}
+pub fn mark_nullifier(env: &Env, n: &BytesN<32>) {
+    env.storage().persistent().set(&DataKey::Nullifier(n.clone()), &());
+}
+pub fn push_sealed_vote(env: &Env, id: u32, v: &shadowkit_shared::SealedVote) {
+    let mut votes: Vec<shadowkit_shared::SealedVote> =
+        env.storage().persistent().get(&DataKey::SealedVotes(id)).unwrap_or(Vec::new(env));
+    votes.push_back(v.clone());
+    env.storage().persistent().set(&DataKey::SealedVotes(id), &votes);
 }
 
 use shadowkit_shared::ProposalView;
@@ -101,12 +119,6 @@ pub fn get_proposal(env: &Env, id: u32) -> ProposalRecord {
 }
 pub fn try_get_proposal(env: &Env, id: u32) -> Option<ProposalRecord> {
     env.storage().persistent().get(&DataKey::Proposal(id))
-}
-pub fn has_voted(env: &Env, id: u32, voter: &Address) -> bool {
-    env.storage().persistent().has(&DataKey::VoterVoted(id, voter.clone()))
-}
-pub fn mark_voted(env: &Env, id: u32, voter: &Address) {
-    env.storage().persistent().set(&DataKey::VoterVoted(id, voter.clone()), &());
 }
 pub fn add_yes(env: &Env, id: u32, w: i128) {
     let cur: i128 = env.storage().persistent().get(&DataKey::YesWeight(id)).unwrap_or(0);
