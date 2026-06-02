@@ -1,14 +1,71 @@
 #![no_std]
-// fallback-amm stub (foundation §2). Real entrypoints land in the owning milestone.
-use soroban_sdk::{contract, contractimpl, Env};
+#[cfg(test)]
+mod test;
+
+// fallback-amm: constant-product USDC/XLM pool implementing the venue-agnostic SwapVenue
+// interface (foundation §2.5). `token` is soroban-sdk's built-in SAC token module:
+// `token::Client::new(&env, &asset)` (read/transfer) and `token::StellarAssetClient::new(&env, &asset)`
+// (admin mint, tests only). Verified ctx7 /stellar/rs-soroban-sdk 2026-06-02.
+//
+// CARRY-FORWARD CORRECTION (SDK 26.0.1): entrypoints with negative tests return
+// `Result<_, AmmError>` (NOT panic_with_error!) so the charter's negative tests can assert
+// `try_<fn>() == Err(Ok(AmmError::X))`. `try_` client methods only surface the typed contract
+// error when the entrypoint declares `-> Result<T, AmmError>` and returns `Err(AmmError::X)`.
+use soroban_sdk::{
+    contract, contracterror, contractevent, contractimpl, contracttype, token, Address, Env,
+};
+
+#[contracttype]
+#[derive(Clone)]
+pub enum AmmKey {
+    AssetA,
+    AssetB,
+    ReserveA,
+    ReserveB,
+}
+
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(u32)]
+pub enum AmmError {
+    NotInitialized = 1,
+    AlreadyInitialized = 2,
+    UnknownAsset = 3,          // asset_in is neither asset_a nor asset_b
+    SlippageExceeded = 4,      // out < min_out
+    InsufficientLiquidity = 5,
+    ZeroAmount = 6,
+}
+
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Swapped {
+    #[topic]
+    pub asset_in: Address,
+    pub amount_in: i128,
+    pub amount_out: i128,
+}
 
 #[contract]
-pub struct Placeholder;
+pub struct FallbackAMM;
 
 #[contractimpl]
-impl Placeholder {
-    /// M0 stub: proves the crate compiles & registers; replaced in its milestone.
-    pub fn ping(_env: Env) -> u32 {
-        0
+impl FallbackAMM {
+    /// Set the two pool assets (e.g. USDC SAC, XLM SAC). Once only.
+    pub fn init(env: Env, asset_a: Address, asset_b: Address) -> Result<(), AmmError> {
+        if env.storage().instance().has(&AmmKey::AssetA) {
+            return Err(AmmError::AlreadyInitialized);
+        }
+        env.storage().instance().set(&AmmKey::AssetA, &asset_a);
+        env.storage().instance().set(&AmmKey::AssetB, &asset_b);
+        env.storage().instance().set(&AmmKey::ReserveA, &0i128);
+        env.storage().instance().set(&AmmKey::ReserveB, &0i128);
+        Ok(())
+    }
+
+    /// (reserve_a, reserve_b). Implements SwapVenue::reserves.
+    pub fn reserves(env: Env) -> (i128, i128) {
+        let ra: i128 = env.storage().instance().get(&AmmKey::ReserveA).unwrap_or(0);
+        let rb: i128 = env.storage().instance().get(&AmmKey::ReserveB).unwrap_or(0);
+        (ra, rb)
     }
 }
