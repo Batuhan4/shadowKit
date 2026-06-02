@@ -75,3 +75,36 @@ pub fn sealed_commit_be32(e: &Env) -> BytesN<32> {
     let arr: StdVec<String> = serde_json::from_str(PUBLIC).unwrap();
     BytesN::from_array(e, &be32(&arr[3]))
 }
+
+// ---- Task 4.35 FRESH bundle (generated via the FULL @shadowkit/zk-prover generateVoteProof path
+//      for a DIFFERENT secret/root; proves the prover re-map and the contract re-map agree on-chain) ----
+pub const FRESH_PROOF: &str = include_str!("../../../circuits/vote/fixtures-fresh/proof.json");
+pub const FRESH_PUBLIC: &str = include_str!("../../../circuits/vote/fixtures-fresh/public.json");
+
+pub fn fresh_proof(e: &Env) -> Proof {
+    let p: ProofJson = serde_json::from_str(FRESH_PROOF).unwrap();
+    Proof {
+        a: g1(e, &p.pi_a[0], &p.pi_a[1]),
+        b: g2(e, &p.pi_b[0][0], &p.pi_b[0][1], &p.pi_b[1][0], &p.pi_b[1][1]),
+        c: g1(e, &p.pi_c[0], &p.pi_c[1]),
+    }
+}
+// FRESH_PUBLIC native order [nullifier, merkleRoot, proposalId, sealedCommit] -> BINDING order
+// EXACTLY as committed_public_signals does.
+pub fn fresh_public_signals(e: &Env) -> Vec<Fr> {
+    let arr: StdVec<String> = serde_json::from_str(FRESH_PUBLIC).unwrap();
+    let mut v = Vec::new(e);
+    v.push_back(fr(e, &arr[1])); // merkleRoot
+    v.push_back(fr(e, &arr[0])); // nullifier
+    v.push_back(fr(e, &arr[2])); // proposalId
+    v.push_back(fr(e, &arr[3])); // sealedCommitmentHash
+    v
+}
+pub fn fresh_merkle_root_be32(e: &Env) -> BytesN<32> {
+    let arr: StdVec<String> = serde_json::from_str(FRESH_PUBLIC).unwrap();
+    BytesN::from_array(e, &be32(&arr[1]))
+}
+pub fn fresh_sealed_commit_be32(e: &Env) -> BytesN<32> {
+    let arr: StdVec<String> = serde_json::from_str(FRESH_PUBLIC).unwrap();
+    BytesN::from_array(e, &be32(&arr[3]))
+}
