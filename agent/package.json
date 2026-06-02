@@ -4,11 +4,21 @@
   "private": true,
   "type": "module",
   "main": "./src/index.ts",
-  "exports": { ".": "./src/index.ts" },
-  "scripts": { "test": "vitest run" },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:planner": "vitest run test/prompt.test.ts test/geminiPlanner.cap.test.ts test/geminiPlanner.stream.test.ts test/planValidation.test.ts",
+    "test:fallback": "USE_DETERMINISTIC_PLANNER=1 vitest run test/deterministicPlanner.test.ts test/agentRunner.fallback.test.ts",
+    "test-llm-live": "RUN_LIVE_LLM=1 vitest run test/geminiPlanner.live.test.ts"
+  },
   "dependencies": {
+    "@google/genai": "2.7.0",
     "@shadowkit/shared": "0.1.0",
     "@stellar/stellar-sdk": "^14.6.1"
   },
-  "devDependencies": { "vitest": "4.1.7" }
+  "devDependencies": {
+    "vitest": "4.1.7"
+  }
 }
