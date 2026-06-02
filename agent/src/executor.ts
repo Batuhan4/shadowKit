@@ -14,6 +14,16 @@ export interface SwapArgs {
   to: string;
 }
 
+/** Config switch (foundation §2.4): pick the swap venue contract id by SWAP_VENUE, never a code fork.
+ *  Both venues implement the same SwapVenue trait, so the only difference is WHICH contract id the
+ *  Executor submits to. Defaults to the always-green FallbackAMM for any value other than "soroswap". */
+export function selectSwapVenueId(
+  mode: string,
+  ids: { fallbackAmmId: string; soroswapAdapterId: string },
+): string {
+  return mode === "soroswap" ? ids.soroswapAdapterId : ids.fallbackAmmId;
+}
+
 /** The network boundary as a small interface (seam). Default impl = StellarChainGateway (real). */
 export interface ChainGateway {
   submitSwap(args: SwapArgs): Promise<{ txHash: string }>;
