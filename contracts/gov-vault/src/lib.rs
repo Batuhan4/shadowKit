@@ -288,9 +288,13 @@ impl GovVault {
         if !fr_eq_bytes32(&env, &pub_signals.get(PS_MERKLE_ROOT).unwrap(), &stored_root) {
             return Err(GovError::StaleMerkleRoot);
         }
-        // 2d) C1b: bind ciphertext<->proof. pub_signals[3] is the in-circuit
-        // Poseidon(direction,weight,sealKey) (foundation §4); the stored commitment MUST equal it,
-        // else the ciphertext is not the one proved -> RevealMismatch.
+        // 2d) C1b/C1c: bind ciphertext<->proof ONLY on the verified path. pub_signals[3] is the
+        // in-circuit Poseidon(direction,weight,sealKey) (foundation §4); the stored commitment MUST
+        // equal it, else the ciphertext is not the one proved -> RevealMismatch. Under
+        // `offchain-verify` the proof is not checked, so pub_signals[3] carries no integrity to bind
+        // to; reveal-time re-aggregation (close_and_reveal) enforces commitment integrity instead
+        // (foundation §2.1/§2.2 fallback).
+        #[cfg(not(feature = "offchain-verify"))]
         if !fr_eq_bytes32(&env, &pub_signals.get(PS_SEALED_COMMIT).unwrap(), &sealed_ciphertext.sealed_commitment_hash) {
             return Err(GovError::RevealMismatch);
         }

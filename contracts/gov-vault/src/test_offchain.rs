@@ -71,3 +71,26 @@ fn offchain_verify_rejects_unauthorized_vote() {
     let res = gov.try_cast_vote(&id, &committed_proof(&env), &committed_public_signals(&env), &sealed, &true);
     assert!(res.is_err()); // auth failure (the off-chain coordinator did not authorize)
 }
+
+// ============================================================================
+// Task C1c — under offchain-verify, the commitment binding is GATED OFF.
+// The proof is not checked, so pub_signals[3] carries no integrity to bind to; a commitment that
+// does NOT match pub_signals[3] is stored as-passed (integrity moves to reveal-time re-aggregation).
+// ============================================================================
+#[test]
+fn offchain_verify_cast_vote_stores_commitment_without_proof_binding() {
+    use crate::storage::DataKey;
+    use soroban_sdk::BytesN;
+    let env = Env::default();
+    env.mock_all_auths();
+    let (gov, _admin) = deploy(&env);
+    let id = create_default_proposal(&env, &gov);
+    // a commitment that does NOT match pub_signals[3] — stored as-passed (binding gated off).
+    let any = BytesN::from_array(&env, &[0x22; 32]);
+    let sealed = SealedVote { round: 9u64, ciphertext: Bytes::from_array(&env, b"ct"), sealed_commitment_hash: any.clone() };
+    gov.cast_vote(&id, &committed_proof(&env), &committed_public_signals(&env), &sealed, &true);
+    let stored: soroban_sdk::Vec<SealedVote> = env.as_contract(&gov.address, || {
+        env.storage().persistent().get(&DataKey::SealedVotes(id)).unwrap()
+    });
+    assert_eq!(stored.get(0).unwrap().sealed_commitment_hash, any); // stored as-passed, not rejected
+}
