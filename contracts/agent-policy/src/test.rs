@@ -1051,4 +1051,128 @@ mod handrolled {
         let res = hr_check(&s, &sk, ctx);
         assert_eq!(res, Ok(()), "valid real-signed swap must pass __check_auth: {:?}", res);
     }
+
+    // ----- M2-5: the hand-rolled reject matrix (REAL signatures, each asserting the EXACT error). -----
+    // The fallback safeguard proof: a hallucinating agent cannot move treasury funds wrong even when
+    // the OZ host is not the host of record. The signature is REAL (signed with the registered key) so
+    // the GATE rejects, not the sig — EXCEPT bad-sig where the sig is deliberately wrong. Each case
+    // asserts the EXACT Err(Ok(soroban_sdk::Error::from_contract_error(PolicyError::X as u32))) via the
+    // host try_ surface (NOT catch_unwind). Mirrors the OZ reject matrix exactly (shared gate engine).
+
+    /// Map a PolicyError to the exact host-surfaced Err the try_ primitive returns.
+    fn err(code: PolicyError) -> Result<(), Result<soroban_sdk::Error, soroban_sdk::InvokeError>> {
+        Err(Ok(soroban_sdk::Error::from_contract_error(code as u32)))
+    }
+
+    #[test]
+    fn handrolled_rejects_not_approved() {
+        let sk = SigningKey::from_bytes(&[11u8; 32]);
+        let s = setup_open_for_handrolled(15_000i128, &sk); // created, not voted/closed -> not approved
+        let ctx = gates::swap_ctx(&s.env, &s.amm, &s.asset_in, 1_000, 1, &s.account);
+        assert_eq!(hr_check(&s, &sk, ctx), err(PolicyError::NotApproved));
+    }
+
+    #[test]
+    fn handrolled_rejects_over_cap() {
+        let sk = SigningKey::from_bytes(&[11u8; 32]);
+        let s = setup_for_handrolled(10_000i128, &sk);
+        let ctx = gates::swap_ctx(&s.env, &s.amm, &s.asset_in, 10_001, 1, &s.account); // over cap
+        assert_eq!(hr_check(&s, &sk, ctx), err(PolicyError::OverCap));
+    }
+
+    #[test]
+    fn handrolled_rejects_wrong_target() {
+        let sk = SigningKey::from_bytes(&[11u8; 32]);
+        let s = setup_for_handrolled(10_000i128, &sk);
+        let bad = Address::generate(&s.env); // target != approved_amm
+        let ctx = gates::swap_ctx(&s.env, &bad, &s.asset_in, 1_000, 1, &s.account);
+        assert_eq!(hr_check(&s, &sk, ctx), err(PolicyError::WrongTarget));
+    }
+
+    #[test]
+    fn handrolled_rejects_wrong_asset_in() {
+        let sk = SigningKey::from_bytes(&[11u8; 32]);
+        let s = setup_for_handrolled(10_000i128, &sk);
+        let bad_asset = Address::generate(&s.env); // asset_in != treasury_asset
+        let ctx = gates::swap_ctx(&s.env, &s.amm, &bad_asset, 1_000, 1, &s.account);
+        assert_eq!(hr_check(&s, &sk, ctx), err(PolicyError::WrongAsset));
+    }
+
+    #[test]
+    fn handrolled_rejects_wrong_asset_out() {
+        // Approve a proposal whose action.asset_out == action.asset_in (not a real, approved output).
+        // gate (f) via the SHARED check_swap_gates: cannot route funds to a worthless/self token.
+        let sk = SigningKey::from_bytes(&[11u8; 32]);
+        let env = Env::default();
+        env.mock_all_auths();
+        let (gv, gov) = fixtures::deploy_gov(&env);
+        let amm = Address::generate(&env);
+        let asset_in = Address::generate(&env);
+        let asset_out = Address::generate(&env);
+        // asset_out deliberately == asset_in -> gate (f) WrongAssetOut
+        let id = fixtures::approve_swap(&env, &gv, &asset_in, &asset_in, 10_000, 10_000);
+        let pubkey = BytesN::from_array(&env, &sk.verifying_key().to_bytes());
+        let account = env.register(HandRolledAgentAccount, ());
+        HandRolledAgentAccountClient::new(&env, &account)
+            .init(&pubkey, &gov, &amm, &asset_in, &id);
+        let s = HrSetup { env, account, gov, amm, asset_in, asset_out, id };
+        let ctx = gates::swap_ctx(&s.env, &s.amm, &s.asset_in, 1_000, 1, &s.account);
+        assert_eq!(hr_check(&s, &sk, ctx), err(PolicyError::WrongAssetOut));
+    }
+
+    #[test]
+    fn handrolled_rejects_malformed_args() {
+        let sk = SigningKey::from_bytes(&[11u8; 32]);
+        let s = setup_for_handrolled(10_000i128, &sk);
+        // a `swap` context with WRONG arity (2 args) -> MalformedArgs
+        let args: Vec<Val> = soroban_sdk::vec![
+            &s.env,
+            s.asset_in.into_val(&s.env),
+            1_000i128.into_val(&s.env)
+        ];
+        let ctx = Context::Contract(ContractContext {
+            contract: s.amm.clone(),
+            fn_name: symbol_short!("swap"),
+            args,
+        });
+        assert_eq!(hr_check(&s, &sk, ctx), err(PolicyError::MalformedArgs));
+    }
+
+    #[test]
+    fn handrolled_rejects_already_executed() {
+        let sk = SigningKey::from_bytes(&[11u8; 32]);
+        let s = setup_for_handrolled(10_000i128, &sk);
+        // status -> Executed (executor require_auth satisfied by build_hr's mock_all_auths + set_executor).
+        GovVaultClient::new(&s.env, &s.gov).mark_executed(&s.id);
+        let ctx = gates::swap_ctx(&s.env, &s.amm, &s.asset_in, 1_000, 1, &s.account);
+        assert_eq!(hr_check(&s, &sk, ctx), err(PolicyError::AlreadyExecuted));
+    }
+
+    #[test]
+    fn handrolled_rejects_bad_signature() {
+        // Sign with a DIFFERENT key than the registered session pubkey -> the REAL env.crypto()
+        // .ed25519_verify fails; the host surfaces it via try_ (NOT catch_unwind). Exact policy code
+        // is not applicable (the failure is in host crypto), so assert res.is_err().
+        let sk = SigningKey::from_bytes(&[11u8; 32]); // registered session key
+        let s = setup_for_handrolled(15_000i128, &sk);
+        let wrong_sk = SigningKey::from_bytes(&[99u8; 32]); // a DIFFERENT key
+        let ctx = gates::swap_ctx(&s.env, &s.amm, &s.asset_in, 1_000, 1, &s.account);
+        let res = hr_check(&s, &wrong_sk, ctx);
+        assert!(
+            res.is_err(),
+            "a signature from the wrong key must fail the real ed25519 verify in __check_auth (got {:?})",
+            res
+        );
+    }
+
+    #[test]
+    fn handrolled_rejects_multi_call() {
+        // TWO contract contexts in ONE auth batch -> the MultiCall override rejects (single-context).
+        let sk = SigningKey::from_bytes(&[11u8; 32]);
+        let s = setup_for_handrolled(15_000i128, &sk);
+        let ctx1 = gates::swap_ctx(&s.env, &s.amm, &s.asset_in, 1_000, 1, &s.account);
+        let ctx2 = gates::swap_ctx(&s.env, &s.amm, &s.asset_in, 1_000, 1, &s.account);
+        let auth_contexts: Vec<Context> = soroban_sdk::vec![&s.env, ctx1, ctx2];
+        assert_eq!(hr_check_ctxs(&s, &sk, auth_contexts), err(PolicyError::MultiCall));
+    }
 }
