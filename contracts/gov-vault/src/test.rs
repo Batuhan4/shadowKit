@@ -569,6 +569,25 @@ fn weighted_quorum_fails_below_min_voters() {
     assert_eq!(gov.proposal(&id).status, ProposalStatus::Rejected); // yes>no but <3 voters
 }
 
+#[test]
+fn double_reveal_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (gov, _v) = deploy_with_committed_root(&env);
+    let id = create_proposal_with_deadline(&env, &gov, 1000);
+    let h0 = store_sealed(&env, &gov, id, 0xE1, 100);
+    let h1 = store_sealed(&env, &gov, id, 0xE2, 101);
+    let h2 = store_sealed(&env, &gov, id, 0xE3, 102);
+    advance_to(&env, 1001);
+    let decs = soroban_sdk::vec![&env,
+        VoteDecryption { direction: 1, weight: 10, sealed_commitment_hash: h0 },
+        VoteDecryption { direction: 1, weight: 10, sealed_commitment_hash: h1 },
+        VoteDecryption { direction: 0, weight: 5,  sealed_commitment_hash: h2 }];
+    gov.close_and_reveal(&id, &20i128, &5i128, &decs);             // first reveal: ok
+    let r = gov.try_close_and_reveal(&id, &20i128, &5i128, &decs); // second: must reject
+    assert_eq!(r, Err(Ok(GovError::AlreadyRevealed)));
+}
+
 // ============================================================================
 // Structural tests (carried from M1, migrated to the foundation init signature)
 // ============================================================================

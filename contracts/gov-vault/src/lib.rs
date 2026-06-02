@@ -267,6 +267,10 @@ impl GovVault {
             Some(r) => r,
             None => return Err(GovError::ProposalNotFound),
         };
+        // C6b: single reveal only — weighted_yes is set exactly once at close (foundation §2.2).
+        if rec.weighted_yes.is_some() {
+            return Err(GovError::AlreadyRevealed);
+        }
         // C3: reject reveal before the deadline.
         if env.ledger().timestamp() < rec.deadline {
             return Err(GovError::DeadlineNotReached);
