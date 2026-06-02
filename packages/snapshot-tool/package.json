@@ -5,5 +5,7 @@
   "type": "module",
   "main": "./src/index.ts",
   "exports": { ".": "./src/index.ts" },
-  "scripts": { "test": "vitest run" }
+  "scripts": { "test": "vitest run" },
+  "dependencies": { "@shadowkit/zk-prover": "0.1.0", "@shadowkit/shared": "0.1.0" },
+  "devDependencies": { "vitest": "4.1.7", "typescript": "^5.6.0" }
 }
