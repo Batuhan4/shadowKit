@@ -108,3 +108,36 @@ pub fn fresh_sealed_commit_be32(e: &Env) -> BytesN<32> {
     let arr: StdVec<String> = serde_json::from_str(FRESH_PUBLIC).unwrap();
     BytesN::from_array(e, &be32(&arr[3]))
 }
+
+// ---- Task 4.36b DEGRADED (fallback-2) min bundle: 3-signal native order [nullifier, merkleRoot,
+//      proposalId]; GovVault min order is BINDING [merkleRoot, nullifier, proposalId] ----
+#[cfg(feature = "circuit-min")]
+pub const PROOF_MIN: &str = include_str!("../../../circuits/vote/fixtures-min/proof.json");
+#[cfg(feature = "circuit-min")]
+pub const PUBLIC_MIN: &str = include_str!("../../../circuits/vote/fixtures-min/public.json");
+
+#[cfg(feature = "circuit-min")]
+pub fn committed_proof_min(e: &Env) -> Proof {
+    let p: ProofJson = serde_json::from_str(PROOF_MIN).unwrap();
+    Proof {
+        a: g1(e, &p.pi_a[0], &p.pi_a[1]),
+        b: g2(e, &p.pi_b[0][0], &p.pi_b[0][1], &p.pi_b[1][0], &p.pi_b[1][1]),
+        c: g1(e, &p.pi_c[0], &p.pi_c[1]),
+    }
+}
+// PUBLIC_MIN native order = [nullifier, merkleRoot, proposalId]; GovVault min order is BINDING
+// [merkleRoot, nullifier, proposalId] (mirrors the full re-map, minus sealedCommitmentHash).
+#[cfg(feature = "circuit-min")]
+pub fn committed_public_signals_min(e: &Env) -> Vec<Fr> {
+    let arr: StdVec<String> = serde_json::from_str(PUBLIC_MIN).unwrap();
+    let mut v = Vec::new(e);
+    v.push_back(fr(e, &arr[1])); // merkleRoot
+    v.push_back(fr(e, &arr[0])); // nullifier
+    v.push_back(fr(e, &arr[2])); // proposalId
+    v
+}
+#[cfg(feature = "circuit-min")]
+pub fn merkle_root_min_be32(e: &Env) -> BytesN<32> {
+    let arr: StdVec<String> = serde_json::from_str(PUBLIC_MIN).unwrap();
+    BytesN::from_array(e, &be32(&arr[1]))
+}

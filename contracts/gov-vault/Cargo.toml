@@ -10,6 +10,7 @@ doctest = false
 
 [features]
 offchain-verify = []   # FALLBACK: skip on-chain verify, trust coordinator-asserted validity (foundation §2.1)
+circuit-min = []       # FALLBACK 2: degraded membership+nullifier circuit, 1-person-1-vote (spec §13.2)
 
 [dependencies]
 soroban-sdk = { workspace = true }

@@ -6,6 +6,7 @@ use soroban_sdk::{
 };
 
 mod vk;
+mod vk_min;
 mod test;
 
 // BINDING re-export (foundation §2.1): downstream crates refer to `groth16_verifier::Bls12381Fr`.
@@ -72,6 +73,14 @@ impl Groth16Verifier {
     /// Returns false on malformed VK (never panics) so callers can map to GovError::InvalidProof.
     pub fn verify(env: Env, proof: Proof, pub_signals: Vec<Fr>) -> bool {
         let vk = vk::embedded_vk(&env);
+        Self::verify_proof(env, vk, proof, pub_signals).unwrap_or(false)
+    }
+
+    /// Degraded (fallback-2) verify: loads the EMBEDDED min VK (vk_min.rs) for the 3-public-signal
+    /// vote_min circuit. pub_signals order BINDING: [merkleRoot, nullifier, proposalId].
+    /// Returns false on malformed VK (never panics). (A 3-signal VK has 4 IC points.)
+    pub fn verify_min(env: Env, proof: Proof, pub_signals: Vec<Fr>) -> bool {
+        let vk = vk_min::embedded_vk_min(&env);
         Self::verify_proof(env, vk, proof, pub_signals).unwrap_or(false)
     }
 }

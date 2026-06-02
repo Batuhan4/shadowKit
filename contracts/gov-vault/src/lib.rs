@@ -362,3 +362,65 @@ impl GovVault {
         Self::cast_vote_inner(env, id, proof, pub_signals, sealed_ciphertext, verified)
     }
 }
+
+// ===========================================================================================
+// FALLBACK 2 (spec §13.2): degraded membership+nullifier circuit, 1-person-1-vote (circuit-min).
+// ===========================================================================================
+// 3-signal BINDING order for the degraded circuit: [merkleRoot, nullifier, proposalId].
+#[cfg(feature = "circuit-min")]
+const PSM_MERKLE_ROOT: u32 = 0;
+#[cfg(feature = "circuit-min")]
+const PSM_NULLIFIER: u32 = 1;
+#[cfg(feature = "circuit-min")]
+const PSM_PROPOSAL_ID: u32 = 2;
+
+#[cfg(feature = "circuit-min")]
+#[contractimpl]
+impl GovVault {
+    /// FALLBACK 2 (1p1v): degraded membership+nullifier proof; weight is recorded as 1 regardless of
+    /// the leaf weight, and there is NO sealed-commitment check (the degraded circuit drops it).
+    /// Keeps the deadline + nullifier (double-vote) + proposalId (replay) + stale-root guards.
+    /// CARRY-FORWARD: returns Result<(), GovError> (NOT panic_with_error!) so try_cast_vote_min() ==
+    /// Err(Ok(GovError::X)) negatives hold (same convention as the primary `cast_vote`).
+    pub fn cast_vote_min(
+        env: Env,
+        id: u32,
+        proof: Proof,
+        pub_signals: Vec<Bls12381Fr>,
+        sealed_ciphertext: SealedVote,
+    ) -> Result<(), GovError> {
+        let mut rec = match storage::try_get_proposal(&env, id) {
+            Some(r) => r,
+            None => return Err(GovError::ProposalNotFound),
+        };
+        if env.ledger().timestamp() >= rec.deadline {
+            return Err(GovError::DeadlinePassed);
+        }
+        if pub_signals.len() != 3 {
+            return Err(GovError::InvalidProof);
+        }
+        let nullifier = fr_to_bytes32(&env, &pub_signals.get(PSM_NULLIFIER).unwrap());
+        if storage::nullifier_used(&env, &nullifier) {
+            return Err(GovError::NullifierUsed);
+        }
+        if !fr_eq_u32(&env, &pub_signals.get(PSM_PROPOSAL_ID).unwrap(), id) {
+            return Err(GovError::WrongProposalId);
+        }
+        let stored_root: BytesN<32> = storage::get_merkle_root(&env);
+        if !fr_eq_bytes32(&env, &pub_signals.get(PSM_MERKLE_ROOT).unwrap(), &stored_root) {
+            return Err(GovError::StaleMerkleRoot);
+        }
+        // verify the degraded proof against the min embedded VK (4 IC points).
+        let verifier = Groth16VerifierClient::new(&env, &storage::get_verifier(&env));
+        if !verifier.verify_min(&proof, &pub_signals) {
+            return Err(GovError::InvalidProof);
+        }
+        // 1p1v: store the ciphertext (sealed direction only; weight is forced to 1 at reveal).
+        storage::mark_nullifier(&env, &nullifier);
+        storage::push_sealed_vote(&env, id, &sealed_ciphertext);
+        rec.votes_cast += 1;
+        storage::set_proposal(&env, id, &rec);
+        VoteCast { id, nullifier }.publish(&env);
+        Ok(())
+    }
+}

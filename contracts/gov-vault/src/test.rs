@@ -752,3 +752,54 @@ fn mark_executed_rejects_non_executor() {
         }])
         .mark_executed(&id);
 }
+
+// ============================================================================
+// Task 4.36b — FALLBACK 2 (1p1v) cast_vote_min: counts-one + double-vote + replay negatives
+// ============================================================================
+#[cfg(feature = "circuit-min")]
+mod min_path {
+    use super::*;
+    use crate::test_fixtures::{committed_proof_min, committed_public_signals_min, merkle_root_min_be32};
+
+    fn deploy_min(env: &Env) -> GovVaultClient<'static> {
+        let verifier_id = env.register(groth16_verifier::Groth16Verifier {}, ());
+        let gov_id = env.register(GovVault {}, ());
+        let gov = GovVaultClient::new(env, &gov_id);
+        let admin = Address::generate(env); let asset = Address::generate(env);
+        gov.init(&admin, &verifier_id, &merkle_root_min_be32(env), &asset, &default_quorum(env));
+        gov
+    }
+
+    #[test]
+    fn cast_vote_min_1p1v_counts_one() {
+        let env = Env::default(); env.mock_all_auths();
+        let gov = deploy_min(&env);
+        let id = create_default_proposal(&env, &gov);
+        let sealed = SealedVote { round: 0, ciphertext: Bytes::from_array(&env, b"min"), sealed_commitment_hash: BytesN::from_array(&env, &[0u8; 32]) };
+        gov.cast_vote_min(&id, &committed_proof_min(&env), &committed_public_signals_min(&env), &sealed);
+        assert_eq!(gov.votes_cast(&id), 1);
+        assert_eq!(gov.proposal(&id).weighted_yes, None);
+    }
+
+    #[test]
+    fn cast_vote_min_double_vote_rejected() {
+        let env = Env::default(); env.mock_all_auths();
+        let gov = deploy_min(&env);
+        let id = create_default_proposal(&env, &gov);
+        let sealed = SealedVote { round: 0, ciphertext: Bytes::from_array(&env, b"min"), sealed_commitment_hash: BytesN::from_array(&env, &[0u8; 32]) };
+        gov.cast_vote_min(&id, &committed_proof_min(&env), &committed_public_signals_min(&env), &sealed);
+        let res = gov.try_cast_vote_min(&id, &committed_proof_min(&env), &committed_public_signals_min(&env), &sealed);
+        assert_eq!(res, Err(Ok(GovError::NullifierUsed)));
+    }
+
+    #[test]
+    fn cast_vote_min_replay_other_proposal_rejected() {
+        let env = Env::default(); env.mock_all_auths();
+        let gov = deploy_min(&env);
+        let _id0 = create_default_proposal(&env, &gov);
+        let id1 = create_default_proposal(&env, &gov); // == 1; committed_min proof has proposalId 0
+        let sealed = SealedVote { round: 0, ciphertext: Bytes::from_array(&env, b"min"), sealed_commitment_hash: BytesN::from_array(&env, &[0u8; 32]) };
+        let res = gov.try_cast_vote_min(&id1, &committed_proof_min(&env), &committed_public_signals_min(&env), &sealed);
+        assert_eq!(res, Err(Ok(GovError::WrongProposalId)));
+    }
+}
