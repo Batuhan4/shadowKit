@@ -16,9 +16,11 @@
   "dependencies": {
     "@google/genai": "2.7.0",
     "@shadowkit/shared": "0.1.0",
+    "@shadowkit/x402-shared": "0.1.0",
     "@stellar/stellar-sdk": "^14.6.1"
   },
   "devDependencies": {
+    "@shadowkit/x402-premium-data": "0.1.0",
     "vitest": "4.1.7"
   }
 }
