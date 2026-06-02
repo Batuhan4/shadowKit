@@ -109,3 +109,11 @@ fn valid_proof_verifies_true() {
     let c = client(&env);
     assert_eq!(c.verify_proof(&load_vk(&env), &load_proof(&env), &load_public(&env)), true);
 }
+
+#[test]
+fn embedded_vk_accepts_committed_proof() {
+    let env = Env::default();
+    let c = client(&env);
+    // `verify` loads the EMBEDDED vk (vk.rs) — must accept the same committed proof.
+    assert_eq!(c.verify(&load_proof(&env), &load_public(&env)), true);
+}
