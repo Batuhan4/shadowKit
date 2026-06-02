@@ -168,6 +168,35 @@ fn sealed_cast_vote_happy_path() {
 }
 
 // ============================================================================
+// Task C1a — cast_vote stores the FULL SealedVote (round + ciphertext + commitment)
+// ============================================================================
+
+#[test]
+fn cast_vote_stores_full_sealed_vote() {
+    use crate::storage::DataKey;
+    let env = Env::default();
+    env.mock_all_auths();
+    let (gov, _v) = deploy_with_committed_root(&env);
+    let id = create_default_proposal(&env, &gov);
+    // The commitment MUST equal the fixture's 4th public signal so the C1b binding holds.
+    let sealed = SealedVote {
+        round: 12345u64,
+        ciphertext: Bytes::from_array(&env, b"armored-ciphertext-bytes"),
+        sealed_commitment_hash: sealed_commit_be32(&env), // == public signal[3]
+    };
+    gov.cast_vote(&id, &committed_proof(&env), &committed_public_signals(&env), &sealed);
+    // read back exactly what was stored
+    let stored: soroban_sdk::Vec<SealedVote> = env.as_contract(&gov.address, || {
+        env.storage().persistent().get(&DataKey::SealedVotes(id)).unwrap()
+    });
+    assert_eq!(stored.len(), 1);
+    let s = stored.get(0).unwrap();
+    assert_eq!(s.round, 12345u64);
+    assert_eq!(s.ciphertext, Bytes::from_array(&env, b"armored-ciphertext-bytes"));
+    assert_eq!(s.sealed_commitment_hash, sealed_commit_be32(&env));
+}
+
+// ============================================================================
 // Task 4.23 — double-vote (same nullifier) -> NullifierUsed
 // ============================================================================
 
