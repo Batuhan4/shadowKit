@@ -1,4 +1,8 @@
-#![cfg(test)]
+// The primary suite targets the 5-arg `cast_vote` ABI. Under `feature = "offchain-verify"` the
+// entrypoint takes a trailing `verified: bool` (6-arg ABI), so this primary suite is compiled ONLY in
+// builds WITHOUT that feature; the fallback ABI is covered by `test_offchain.rs` (which carries its own
+// copies of the `default_quorum`/`create_default_proposal` helpers since `crate::test::*` is gated out).
+#![cfg(all(test, not(feature = "offchain-verify")))]
 extern crate std;
 use crate::{GovVault, GovVaultClient, GovError};
 use shadowkit_shared::{ActionSpec, QuorumCfg, ProposalStatus, SwapKind, SealedVote};

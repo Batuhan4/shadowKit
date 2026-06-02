@@ -4,6 +4,8 @@ mod storage;
 mod test;
 #[cfg(test)]
 mod test_fixtures;
+#[cfg(all(test, feature = "offchain-verify"))]
+mod test_offchain;
 
 use soroban_sdk::{contract, contracterror};
 
