@@ -480,6 +480,21 @@ fn reveal_wrong_length_rejected() {
     assert_eq!(r, Err(Ok(GovError::RevealMismatch)));
 }
 
+#[test]
+fn reveal_wrong_commitment_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (gov, _v) = deploy_with_committed_root(&env);
+    let (id, h0, h1, _h2) = setup_revealable(&env, &gov);
+    let bogus = BytesN::from_array(&env, &[0xFF; 32]);
+    let decs = soroban_sdk::vec![&env,
+        VoteDecryption { direction: 1, weight: 100, sealed_commitment_hash: h0 },
+        VoteDecryption { direction: 1, weight: 100, sealed_commitment_hash: h1 },
+        VoteDecryption { direction: 0, weight: 50,  sealed_commitment_hash: bogus }]; // h2 swapped
+    let r = gov.try_close_and_reveal(&id, &200i128, &50i128, &decs);
+    assert_eq!(r, Err(Ok(GovError::RevealMismatch)));
+}
+
 // ============================================================================
 // Structural tests (carried from M1, migrated to the foundation init signature)
 // ============================================================================

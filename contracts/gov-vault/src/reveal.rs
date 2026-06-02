@@ -22,8 +22,13 @@ pub fn reaggregate(
     }
     let mut yes: i128 = 0;
     let mut no: i128 = 0;
-    for i in 0..decryptions.len() {
+    for i in 0..sealed.len() {
+        let s = sealed.get(i).unwrap();
         let d = decryptions.get(i).unwrap();
+        // C5b: (2) bind each decryption to its EXACT stored ciphertext — no substitution.
+        if d.sealed_commitment_hash != s.sealed_commitment_hash {
+            panic_with_error!(env, GovError::RevealMismatch);
+        }
         // C3: no direction-bit guard yet (added C5c). direction==1 -> yes, anything else -> no.
         if d.direction == 1 {
             yes += d.weight;
