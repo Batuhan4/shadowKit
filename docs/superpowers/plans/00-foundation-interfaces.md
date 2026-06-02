@@ -1442,3 +1442,20 @@ Each plan's **File Structure** section must list exactly the files in §1 it tou
 ---
 
 *End of foundation. All milestone plans (`01`-`07`) reference this document by section number. Any change to a binding signature here REQUIRES updating every dependent plan.*
+
+---
+
+## M0 Execution Learnings (stellar-cli 26.1.0 corrections)
+
+These corrections were discovered during M0 execution (verified via `--help` and real runs on 2026-06-02). The committed scripts already reflect them; this section ensures M1–M6 implementers do not repeat the drift.
+
+| # | Topic | Original plan (incorrect) | Verified reality (stellar-cli 26.1.0) |
+|---|---|---|---|
+| 1 | Local network start/stop | `stellar network container start/stop <net>` | `stellar container start <net>` / `stellar container stop <net>`. Also: quickstart:testing defaults to **protocol 25**; soroban-sdk 26.0.0 requires protocol 26 — pass `--protocol-version 26` to `stellar container start`. |
+| 2 | `stellar network add` idempotency | Passed `--overwrite` flag | `stellar network add` has **no `--overwrite` flag** in 26.1.0. Re-adding an existing name exits 0 (idempotent by default). Remove `--overwrite` from any invocation. |
+| 3 | Key generation | `stellar keys generate --global <name> --network <net> --fund` | `stellar keys generate` has **no `--global` flag** in 26.1.0. Keys are stored in `$XDG_CONFIG_HOME/stellar` by default. Drop `--global`. |
+| 4 | SAC id resolution | `stellar contract id asset --source-account ... --network ... --asset <ASSET>` | `stellar contract id asset` has **no `--source-account` flag** in 26.1.0. Only `--network` and `--asset` are needed. |
+| 5 | SAC deploy idempotency | `stellar contract asset deploy` assumed idempotent | Returns `Error(Storage, ExistingValue)` if the SAC already exists (e.g. second deploy cycle). Resolve via the idempotent helper: try `asset deploy`, fall back to `contract id asset` on non-zero exit. `deploy-local.sh`'s `deploy_or_resolve_sac()` implements this pattern. |
+| 6 | vitest version | `vitest 4.1.8` (§6 table + pin list) | **`vitest 4.1.7`** is the highest version available on this machine's npm registry (date-gated to before 2026-05-31). `vitest 4.1.8` was never installable; `4.1.7` is pinned in `package-lock.json`. Separately, `vite` resolved to **7.3.3** (not 7.3.5 — no explicit pin; `ERESOLVE` prevented 7.3.5). Update §6 vitest row from `4.1.8` to `4.1.7` when this machine's npm registry is updated. |
+
+**Note on §6 vitest row:** the table at §6 still reads `vitest 4.1.8`; the actual installed + locked version is `4.1.7`. This is a registry date-gate artifact, not a compatibility issue. M1+ implementers should verify `npm view vitest version` before bumping.
