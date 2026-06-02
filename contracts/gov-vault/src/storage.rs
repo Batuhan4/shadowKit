@@ -73,3 +73,33 @@ pub fn get_vote_weights(env: &Env) -> Map<Address, i128> {
     env.storage().instance().get(&DataKey::VoteWeights)
         .unwrap_or_else(|| Map::new(env))
 }
+
+use shadowkit_shared::ProposalView;
+
+pub fn next_id(env: &Env) -> u32 {
+    let id: u32 = env.storage().instance().get(&DataKey::NextId).unwrap_or(0);
+    env.storage().instance().set(&DataKey::NextId, &(id + 1));
+    id
+}
+pub fn set_proposal(env: &Env, id: u32, rec: &ProposalRecord) {
+    env.storage().persistent().set(&DataKey::Proposal(id), rec);
+}
+pub fn get_proposal(env: &Env, id: u32) -> ProposalRecord {
+    env.storage().persistent().get(&DataKey::Proposal(id))
+        .unwrap_or_else(|| panic_with_error!(env, GovError::ProposalNotFound))
+}
+pub fn try_get_proposal(env: &Env, id: u32) -> Option<ProposalRecord> {
+    env.storage().persistent().get(&DataKey::Proposal(id))
+}
+pub fn to_view(id: u32, rec: &ProposalRecord) -> ProposalView {
+    ProposalView {
+        id,
+        action_spec: rec.action_spec.clone(),
+        cap: rec.cap,
+        deadline: rec.deadline,
+        votes_cast: rec.votes_cast,
+        status: rec.status.clone(),
+        weighted_yes: rec.weighted_yes,
+        weighted_no: rec.weighted_no,
+    }
+}

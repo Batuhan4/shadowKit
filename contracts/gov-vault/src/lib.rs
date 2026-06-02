@@ -37,8 +37,13 @@ pub enum GovError {
     DeadlineInPast     = 22, // create_proposal: deadline <= current ledger timestamp
 }
 
-use soroban_sdk::{contractimpl, Address, Env, Map};
-use shadowkit_shared::QuorumCfg;
+use soroban_sdk::{contractevent, contractimpl, Address, Env, Map};
+use shadowkit_shared::{ActionSpec, ProposalView, ProposalStatus, QuorumCfg};
+use crate::storage::ProposalRecord;
+
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProposalCreated { #[topic] pub id: u32, pub deadline: u64, pub cap: i128 }
 
 #[contractimpl]
 impl GovVault {
@@ -66,5 +71,57 @@ impl GovVault {
     /// Read a voter's snapshot weight (0 if not eligible). View; no auth.
     pub fn weight_of(env: Env, voter: Address) -> i128 {
         storage::get_vote_weights(&env).get(voter).unwrap_or(0)
+    }
+
+    /// Create a proposal. Sequential u32 id starting at 0. `cap` bounds ActionSpec.amount;
+    /// `deadline` = unix-seconds ledger timestamp. Admin auth required.
+    /// INVARIANTS (foundation §5 / §2.6 / spec §9): ActionSpec.amount must be in (0, cap]; the
+    /// deadline must be strictly in the future. These guarantee the cap invariant that AgentPolicy
+    /// (M2) and the safeguard "amount <= proposal cap" rely on, and that the proposal is votable.
+    pub fn create_proposal(
+        env: Env,
+        action_spec: ActionSpec,
+        cap: i128,
+        deadline: u64,
+    ) -> Result<u32, GovError> {
+        let admin = storage::get_admin(&env);
+        admin.require_auth();
+        // cap invariant: 0 < amount <= cap
+        if action_spec.amount <= 0 || action_spec.amount > cap {
+            return Err(GovError::ProposalAmountOverCap);
+        }
+        // deadline must be in the future
+        if deadline <= env.ledger().timestamp() {
+            return Err(GovError::DeadlineInPast);
+        }
+        let id = storage::next_id(&env);
+        let rec = ProposalRecord {
+            action_spec,
+            cap,
+            deadline,
+            status: ProposalStatus::Open,
+            weighted_yes: None,
+            weighted_no: None,
+            votes_cast: 0,
+            executed: false,
+        };
+        storage::set_proposal(&env, id, &rec);
+        env.storage().persistent().set(&storage::DataKey::YesWeight(id), &0i128);
+        env.storage().persistent().set(&storage::DataKey::NoWeight(id), &0i128);
+        ProposalCreated { id, deadline, cap }.publish(&env);
+        Ok(id)
+    }
+
+    /// Full read model. weighted_yes/no are None until close. Never leaks tally early.
+    pub fn proposal(env: Env, id: u32) -> Result<ProposalView, GovError> {
+        match storage::try_get_proposal(&env, id) {
+            Some(rec) => Ok(storage::to_view(id, &rec)),
+            None => Err(GovError::ProposalNotFound),
+        }
+    }
+
+    /// Participation count (safe — no direction).
+    pub fn votes_cast(env: Env, id: u32) -> u32 {
+        storage::get_proposal(&env, id).votes_cast
     }
 }
