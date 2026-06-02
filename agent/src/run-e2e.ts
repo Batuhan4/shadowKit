@@ -10,9 +10,12 @@
 // and the real GovReader (live cap_of/action_of). This is the path that actually exercises the agent
 // submit code against the live container (NOT a mock).
 //
-// DataClient: the M2 DataClient is an explicit stub (the real x402-paying client lands in M6,
-// foundation §3.5). We feed it a 1:1 market price via setInjected so the DeterministicPlanner's
-// minOut is realistic for the seeded ~1:1 FallbackAMM pool. Everything else is the real path.
+// DataClient: M6 makes the real DataClient a REAL x402 payer (it GETs the x402-protected premium-data
+// endpoint and auto-pays the 402). The hero-loop e2e runs against the LIVE local Stellar net where NO
+// premium-data x402 service is running, and the PURPOSE of this driver is the on-chain submit path (not
+// the x402 pay path, which is proven by agent/test/dataClient.test.ts). So here we inject a 1:1 market
+// directly via the AgentDeps.dataClient seam (a plain { fetchMarket }), giving the DeterministicPlanner a
+// realistic minOut for the seeded ~1:1 FallbackAMM pool. Everything else is the real path.
 //
 // TREASURY / AUTH (charter rule 4, recorded divergence — see scripts/e2e-hero.sh + the M2 plan's
 // Verification log): the on-network treasury is the agent's CLASSIC session account (the swap's `to`
@@ -35,7 +38,7 @@ declare const process: { env: Record<string, string | undefined>; exit(code: num
 import { AgentRunner, type AgentConfig, type AgentDeps, type GovReader } from "./index";
 import { Watcher } from "./watcher";
 import { Executor } from "./executor";
-import { DataClient } from "./dataClient";
+import type { MarketData } from "./dataClient";
 import { DeterministicPlanner } from "./planner";
 import type { ActionSpec, AgentLog } from "@shadowkit/shared";
 import { contract } from "@stellar/stellar-sdk";
@@ -80,9 +83,9 @@ async function main(): Promise<void> {
     sessionSecretKey,
     govVaultId,
   });
-  const dataClient = new DataClient({ url: cfg.premiumDataUrl, signerSecret: sessionSecretKey, network: networkPassphrase });
   // 1:1 market so DeterministicPlanner.minOut (price*amount*(1-50bps)) sits below the seeded ~1:1 pool's out.
-  dataClient.setInjected({ pair: "USDC/XLM", price: "1", signal: "buy" });
+  // Injected at the AgentDeps seam (no live x402 endpoint on the local hero net — see the note above).
+  const dataClient = { fetchMarket: async (pair: string): Promise<MarketData> => ({ pair, price: "1", signal: "buy" }) };
 
   const readProposal = async (id: number) => {
     const c = await contract.Client.from({ contractId: govVaultId, networkPassphrase, rpcUrl, allowHttp: rpcUrl.startsWith("http://") });
