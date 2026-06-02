@@ -36,3 +36,35 @@ pub enum GovError {
     ProposalAmountOverCap = 21, // create_proposal: action_spec.amount > cap (or <= 0)
     DeadlineInPast     = 22, // create_proposal: deadline <= current ledger timestamp
 }
+
+use soroban_sdk::{contractimpl, Address, Env, Map};
+use shadowkit_shared::QuorumCfg;
+
+#[contractimpl]
+impl GovVault {
+    /// Initialize once. `vote_weights` is the M1 plaintext snapshot (voter -> token weight).
+    /// Admin must auth. Default quorum_cfg per foundation §5: {min_voters:3, yes_must_exceed_no:true}.
+    pub fn init(
+        env: Env,
+        admin: Address,
+        treasury_asset: Address,
+        quorum_cfg: QuorumCfg,
+        vote_weights: Map<Address, i128>,
+    ) -> Result<(), GovError> {
+        if storage::is_initialized(&env) {
+            return Err(GovError::AlreadyInitialized);
+        }
+        admin.require_auth();
+        storage::set_admin(&env, &admin);
+        storage::set_treasury_asset(&env, &treasury_asset);
+        storage::set_quorum_cfg(&env, &quorum_cfg);
+        storage::set_vote_weights(&env, &vote_weights);
+        env.storage().instance().set(&storage::DataKey::NextId, &0u32);
+        Ok(())
+    }
+
+    /// Read a voter's snapshot weight (0 if not eligible). View; no auth.
+    pub fn weight_of(env: Env, voter: Address) -> i128 {
+        storage::get_vote_weights(&env).get(voter).unwrap_or(0)
+    }
+}

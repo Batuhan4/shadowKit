@@ -41,3 +41,35 @@ pub struct ProposalRecord {
     pub votes_cast: u32,
     pub executed: bool,
 }
+
+use soroban_sdk::{Env, panic_with_error};
+use shadowkit_shared::QuorumCfg;
+use crate::GovError;
+
+pub fn is_initialized(env: &Env) -> bool {
+    env.storage().instance().has(&DataKey::Admin)
+}
+pub fn set_admin(env: &Env, admin: &Address) {
+    env.storage().instance().set(&DataKey::Admin, admin);
+}
+pub fn get_admin(env: &Env) -> Address {
+    env.storage().instance().get(&DataKey::Admin)
+        .unwrap_or_else(|| panic_with_error!(env, GovError::NotInitialized))
+}
+pub fn set_treasury_asset(env: &Env, a: &Address) {
+    env.storage().instance().set(&DataKey::TreasuryAsset, a);
+}
+pub fn set_quorum_cfg(env: &Env, cfg: &QuorumCfg) {
+    env.storage().instance().set(&DataKey::QuorumCfg, cfg);
+}
+pub fn get_quorum_cfg(env: &Env) -> QuorumCfg {
+    env.storage().instance().get(&DataKey::QuorumCfg)
+        .unwrap_or_else(|| panic_with_error!(env, GovError::NotInitialized))
+}
+pub fn set_vote_weights(env: &Env, m: &Map<Address, i128>) {
+    env.storage().instance().set(&DataKey::VoteWeights, m);
+}
+pub fn get_vote_weights(env: &Env) -> Map<Address, i128> {
+    env.storage().instance().get(&DataKey::VoteWeights)
+        .unwrap_or_else(|| Map::new(env))
+}
