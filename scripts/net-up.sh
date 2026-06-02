@@ -5,7 +5,7 @@
 set -euo pipefail
 
 echo "[net-up] starting local Stellar quickstart container..."
-stellar network container start local
+stellar container start local
 
 echo "[net-up] registering 'local' network with the CLI..."
 stellar network add local \
