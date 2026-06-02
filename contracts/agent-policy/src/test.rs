@@ -448,8 +448,9 @@ pub mod gates {
         auth::{Context, ContractContext},
         symbol_short, testutils::Address as _, vec, Address, Env, IntoVal, String, Val, Vec,
     };
-    use stellar_accounts::smart_account::{ContextRule, ContextRuleType, Signer};
+    use stellar_accounts::smart_account::{ContextRule, ContextRuleType};
 
+    #[allow(dead_code)] // asset_out/cap are part of the harness surface used by downstream M2 tasks
     pub struct Setup {
         pub env: Env,
         pub policy: AgentPolicyClient<'static>,
@@ -546,6 +547,74 @@ pub mod gates {
             policies: Vec::new(env),   // Vec<Address>
             policy_ids: Vec::new(env), // Vec<u32>
             valid_until: None,         // Option<u32>
+        }
+    }
+
+    // ----- Task M2-3: a REAL OZ smart-account host with AgentPolicy installed on its Default rule -----
+    use crate::test_account::{TestEd25519Verifier, TestSmartAccount};
+    use ed25519_dalek::SigningKey;
+    use soroban_sdk::{Bytes, BytesN, Map};
+    use stellar_accounts::smart_account::Signer as OzSigner;
+
+    #[allow(dead_code)] // gov/asset_out/id/cap are part of the harness surface for downstream M2 tasks
+    pub struct OzHostSetup {
+        pub env: Env,
+        pub host: Address, // the treasury smart-account (where AgentPolicy params are installed)
+        pub gov: Address,
+        pub amm: Address,
+        pub asset_in: Address,
+        pub asset_out: Address,
+        pub id: u32,
+        pub cap: i128,
+        pub sk: SigningKey,      // the session signing key (REAL ed25519)
+        pub pubkey: BytesN<32>,  // the registered session pubkey
+        pub verifier: Address,   // the ed25519 verifier contract
+        pub rule_id: u32,        // the host's Default context rule id
+    }
+
+    /// Deploy GovVault (Approved swap asset_in->asset_out cap), the AgentPolicy, a TestEd25519Verifier,
+    /// and a TestSmartAccount host with the session ed25519 signer registered AND AgentPolicy installed
+    /// as a policy on the Default rule (install_params = AgentPolicyParams). Returns OzHostSetup.
+    /// SOURCE: registration mirrors examples/multisig-smart-account/account (External signer + policy map);
+    /// the OZ constructor's add_context_rule calls PolicyClient::install(params, rule, host).
+    pub fn setup_oz_host(cap: i128) -> OzHostSetup {
+        let env = Env::default();
+        // mock_all_auths so the GovVault admin/governance auths AND the AgentPolicy install's
+        // smart_account.require_auth() (run during host construction) resolve. The SESSION ed25519
+        // signature exercised by __check_auth is REAL (verified by the real verifier), NOT mocked.
+        env.mock_all_auths();
+
+        let (gv, gov) = fixtures::deploy_gov(&env);
+        let amm = Address::generate(&env);
+        let asset_in = Address::generate(&env);
+        let asset_out = Address::generate(&env);
+        let id = fixtures::approve_swap(&env, &gv, &asset_in, &asset_out, cap, cap);
+
+        // REAL session key + verifier.
+        let sk = SigningKey::from_bytes(&[7u8; 32]);
+        let pubkey = BytesN::from_array(&env, &sk.verifying_key().to_bytes());
+        let verifier = env.register(TestEd25519Verifier, ());
+
+        // Deploy the AgentPolicy and install it on the host's Default rule with our params.
+        let policy_id = env.register(AgentPolicy, ());
+        let params = AgentPolicyParams {
+            gov_vault: gov.clone(),
+            approved_amm: amm.clone(),
+            treasury_asset: asset_in.clone(),
+            proposal_id: id,
+        };
+        let signers: Vec<OzSigner> = soroban_sdk::vec![
+            &env,
+            OzSigner::External(verifier.clone(), Bytes::from_array(&env, &pubkey.to_array()))
+        ];
+        let mut policies: Map<Address, Val> = Map::new(&env);
+        policies.set(policy_id.clone(), params.into_val(&env)); // install_params = AgentPolicyParams
+        let host = env.register(TestSmartAccount, (signers, policies));
+
+        OzHostSetup {
+            env, host, gov, amm, asset_in, asset_out, id, cap,
+            sk, pubkey, verifier,
+            rule_id: 0u32, // __constructor registers the Default rule as the first rule (id 0)
         }
     }
 }
@@ -771,5 +840,120 @@ fn reject_malformed_args() {
     assert_eq!(
         s.policy.try_test_enforce(&ctx, &s.sa),
         Err(Ok(PolicyError::MalformedArgs))
+    );
+}
+
+// ===========================================================================
+// Task M2-3 — OZ smart-account host + REAL ed25519 auth integration.
+// Proves AgentPolicy::enforce runs INSIDE a real do_check_auth flow (the §13.4 cross-read path),
+// authenticated by a REAL ed25519 session signature (NOT mock_all_auths for the signer-under-test).
+//
+// We invoke TestSmartAccount.__check_auth via `env.try_invoke_contract_check_auth::<Error>` — the
+// exact host code path the runtime uses for auth — so we can assert the EXACT Ok/Err outcome with
+// the contract error code surfaced. (DIVERGENCE vs plan snippet: the plan assumed a generated
+// `try___check_auth` client method; the soroban-sdk 26.0.1 contractimpl for CustomAccountInterface
+// does NOT generate one, so we reuse the M2-V1c driver primitive `try_invoke_contract_check_auth`,
+// SOURCE soroban-sdk 26.0.1 env.rs:1602. This is NOT catch_unwind — it is the host Err surface.)
+
+/// Invoke the host's __check_auth via the real host primitive; surface the contract Error code.
+fn check_auth(
+    env: &Env,
+    host: &Address,
+    signature_payload: &BytesN<32>,
+    signed: &crate::test::AuthPayload,
+    auth_contexts: &Vec<Context>,
+) -> Result<(), Result<soroban_sdk::Error, soroban_sdk::InvokeError>> {
+    env.try_invoke_contract_check_auth::<soroban_sdk::Error>(
+        host,
+        signature_payload,
+        signed.clone().into_val(env),
+        auth_contexts,
+    )
+}
+
+#[test]
+fn oz_real_auth_allows_valid_swap() {
+    let h = gates::setup_oz_host(15_000i128);
+    // The swap context the treasury authorizes: swap(asset_in, amount<=cap, min_out, to=host).
+    let ctx = gates::swap_ctx(&h.env, &h.amm, &h.asset_in, 10_000, 1, &h.host);
+    let auth_contexts: Vec<Context> = soroban_sdk::vec![&h.env, ctx];
+    // The host hands __check_auth a 32-byte signature_payload; sign_auth_payload signs the host
+    // digest sha256(payload || context_rule_ids.to_xdr()) with the REAL session key. corrupt_sig=false.
+    let payload = BytesN::from_array(&h.env, &[9u8; 32]);
+    let signed = sign_auth_payload(&h.env, &h.verifier, &h.sk, &h.pubkey, &payload, h.rule_id, false);
+    // GovVault admin auths mocked; the SESSION signature + enforce cross-read are REAL.
+    h.env.mock_all_auths_allowing_non_root_auth();
+    let res = check_auth(&h.env, &h.host, &payload, &signed, &auth_contexts);
+    assert_eq!(
+        res,
+        Ok(()),
+        "valid real-signed swap authorized by OZ host + policy must pass: {:?}",
+        res
+    );
+}
+
+#[test]
+fn oz_real_auth_rejects_over_cap_proving_enforce_ran() {
+    // PROVES enforce actually ran: a TAMPERED over-cap arg makes the REAL auth path reject. If enforce
+    // were NOT running during auth, an over-cap swap would wrongly pass.
+    let h = gates::setup_oz_host(10_000i128);
+    let ctx = gates::swap_ctx(&h.env, &h.amm, &h.asset_in, 10_001, 1, &h.host); // over cap
+    let auth_contexts: Vec<Context> = soroban_sdk::vec![&h.env, ctx];
+    let payload = BytesN::from_array(&h.env, &[9u8; 32]);
+    let signed = sign_auth_payload(&h.env, &h.verifier, &h.sk, &h.pubkey, &payload, h.rule_id, false);
+    h.env.mock_all_auths_allowing_non_root_auth();
+    let res = check_auth(&h.env, &h.host, &payload, &signed, &auth_contexts);
+    // The host surfaces the policy's OverCap as a contract error => enforce DID run during auth.
+    let expected = soroban_sdk::Error::from_contract_error(PolicyError::OverCap as u32);
+    assert_eq!(
+        res,
+        Err(Ok(expected)),
+        "over-cap must be rejected by enforce (OverCap) during real auth (got {:?})",
+        res
+    );
+}
+
+#[test]
+fn oz_real_auth_rejects_bad_sig() {
+    // corrupt_sig=true: the driver flips the last signature byte -> a genuinely invalid ed25519
+    // signature over the host digest, presented against the REGISTERED pubkey. The verifier's
+    // ed25519_verify (REAL) fails during do_check_auth.
+    let h = gates::setup_oz_host(15_000i128);
+    let ctx = gates::swap_ctx(&h.env, &h.amm, &h.asset_in, 1_000, 1, &h.host);
+    let auth_contexts: Vec<Context> = soroban_sdk::vec![&h.env, ctx];
+    let payload = BytesN::from_array(&h.env, &[9u8; 32]);
+    let signed = sign_auth_payload(&h.env, &h.verifier, &h.sk, &h.pubkey, &payload, h.rule_id, true);
+    h.env.mock_all_auths_allowing_non_root_auth();
+    let res = check_auth(&h.env, &h.host, &payload, &signed, &auth_contexts);
+    assert!(
+        res.is_err(),
+        "bad signature must be rejected by the ed25519 verifier during __check_auth (got {:?})",
+        res
+    );
+}
+
+#[test]
+fn oz_real_auth_rejects_multi_call() {
+    // ONE auth batch with TWO contract contexts -> the __check_auth MultiCall override rejects with
+    // PolicyError::MultiCall (mapped into soroban_sdk::Error). context_rule_ids must be index-aligned.
+    let h = gates::setup_oz_host(15_000i128);
+    let ctx1 = gates::swap_ctx(&h.env, &h.amm, &h.asset_in, 1_000, 1, &h.host);
+    let ctx2 = gates::swap_ctx(&h.env, &h.amm, &h.asset_in, 1_000, 1, &h.host);
+    let auth_contexts: Vec<Context> = soroban_sdk::vec![&h.env, ctx1, ctx2]; // TWO contract contexts
+    let payload = BytesN::from_array(&h.env, &[9u8; 32]);
+    let mut signed =
+        sign_auth_payload(&h.env, &h.verifier, &h.sk, &h.pubkey, &payload, h.rule_id, false);
+    // two context_rule_ids (index-aligned) so the do_check_auth length check would pass; the override
+    // trips FIRST (it counts contract contexts before delegating).
+    signed.context_rule_ids = soroban_sdk::vec![&h.env, h.rule_id, h.rule_id];
+    h.env.mock_all_auths_allowing_non_root_auth();
+    let res = check_auth(&h.env, &h.host, &payload, &signed, &auth_contexts);
+    // MultiCall surfaces as PolicyError::MultiCall (mapped into soroban_sdk::Error by the override).
+    let expected = soroban_sdk::Error::from_contract_error(PolicyError::MultiCall as u32);
+    assert_eq!(
+        res,
+        Err(Ok(expected)),
+        "multi-call auth batch must be rejected by the override with MultiCall (got {:?})",
+        res
     );
 }

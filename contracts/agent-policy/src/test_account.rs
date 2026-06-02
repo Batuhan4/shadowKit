@@ -12,7 +12,6 @@ use soroban_sdk::{
 };
 use stellar_accounts::smart_account::{
     self, AuthPayload, ContextRule, ContextRuleType, ExecutionEntryPoint, Signer, SmartAccount,
-    SmartAccountError,
 };
 use stellar_accounts::verifiers::{ed25519 as ed25519_verifier, Verifier};
 
@@ -52,7 +51,11 @@ impl TestSmartAccount {
 }
 #[contractimpl]
 impl CustomAccountInterface for TestSmartAccount {
-    type Error = SmartAccountError;
+    // SOURCE: soroban-sdk 26.0.1 auth.rs:99 `type Error: Into<Error>`. We use the raw
+    // `soroban_sdk::Error` so the override can surface BOTH SmartAccountError (via Into) AND our
+    // PolicyError::MultiCall (via Error::from_contract_error). `from_contract_error(code: u32)`
+    // SOURCE: soroban-env-common 26.1.3 error.rs:306 (re-exported as soroban_sdk::Error).
+    type Error = soroban_sdk::Error;
     type Signature = AuthPayload;
     fn __check_auth(
         e: Env,
@@ -60,8 +63,26 @@ impl CustomAccountInterface for TestSmartAccount {
         signatures: AuthPayload,
         auth_contexts: Vec<Context>,
     ) -> Result<(), Self::Error> {
-        // M2-V1c: no MultiCall override yet (added in M2-3). Just delegate so `enforce` runs during auth.
+        // MultiCall gate (M2-3): exactly ONE contract context permitted per auth batch.
+        // do_check_auth validates each context independently and would otherwise accept >1 (verified
+        // stellar-accounts v0.8.0-rc.1 storage.rs:do_check_auth — it iterates auth_contexts). The
+        // override is the hook that counts the batch and maps a multi-call to PolicyError::MultiCall.
+        let mut contract_ctxs = 0u32;
+        for c in auth_contexts.iter() {
+            if let Context::Contract(_) = c {
+                contract_ctxs += 1;
+            }
+        }
+        if contract_ctxs > 1 {
+            // SmartAccountError has no MultiCall variant; surface our policy code as a host Error.
+            return Err(soroban_sdk::Error::from_contract_error(
+                crate::PolicyError::MultiCall as u32,
+            ));
+        }
+        // Delegate to the OZ host: authenticates the ed25519 signature then runs each policy's
+        // `enforce` (the §13.4 cross-read path). SmartAccountError converts into soroban_sdk::Error.
         smart_account::do_check_auth(&e, &signature_payload, &signatures, &auth_contexts)
+            .map_err(|err| err.into())
     }
 }
 #[contractimpl(contracttrait)]
