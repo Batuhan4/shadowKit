@@ -617,6 +617,122 @@ pub mod gates {
             rule_id: 0u32, // __constructor registers the Default rule as the first rule (id 0)
         }
     }
+
+    // ----- Task M2-6/M2-7: the on-chain HERO-LOOP setup (REAL SAC tokens + REAL FallbackAMM). -----
+    // Unlike setup_oz_host (which uses generated placeholder addresses for assets/amm), the hero loop
+    // needs ACTUAL token contracts whose balances move and an ACTUAL FallbackAMM with liquidity. The
+    // treasury host holds USDC; FallbackAMM.swap(usdc, ...) pulls USDC FROM and pushes XLM TO the
+    // treasury (to.require_auth() == the treasury host). AgentPolicy is installed so enforce gates the
+    // swap during a real __check_auth (the gate-pass is asserted with a REAL session signature).
+    use fallback_amm::{FallbackAMM, FallbackAMMClient};
+    use soroban_sdk::token;
+
+    #[allow(dead_code)] // some fields are part of the harness surface used by the integration tests
+    pub struct FullAssetsSetup {
+        pub env: Env,
+        pub treasury: Address, // the OZ-hosted TestSmartAccount wallet (treasury) holding USDC
+        pub gov: Address,
+        pub amm: Address, // the REAL FallbackAMM (== approved_amm)
+        pub usdc: Address,       // USDC SAC contract id (treasury asset / asset_in)
+        pub usdc_admin: Address, // USDC SAC admin (mint authority)
+        pub xlm: Address,        // XLM SAC contract id (asset_out, the REAL output)
+        pub xlm_admin: Address,  // XLM SAC admin (mint authority)
+        pub id: u32,
+        pub cap: i128,
+        pub sk: SigningKey,     // REAL ed25519 session key
+        pub pubkey: BytesN<32>, // registered session pubkey
+        pub verifier: Address,  // ed25519 verifier contract
+        pub rule_id: u32,       // the treasury host's Default context rule id
+    }
+
+    /// Build the full on-chain hero-loop fixture with REAL SAC tokens and a REAL FallbackAMM.
+    /// `approved` selects whether the gov proposal reaches quorum (Approved) or stays Open.
+    /// Liquidity is seeded so the swap returns a positive XLM out. The treasury is NOT funded here
+    /// (the test mints into it so before/after deltas are explicit).
+    fn build_full(amount_cap: i128, approved: bool) -> FullAssetsSetup {
+        let env = Env::default();
+        // GovVault admin/governance auths AND the AgentPolicy install's smart_account.require_auth()
+        // (host construction) AND liquidity-provider auth are mocked. The SESSION ed25519 signature
+        // exercised by __check_auth (the gate-pass proof) is REAL.
+        env.mock_all_auths();
+
+        // REAL SAC tokens: USDC (treasury asset / asset_in), XLM (asset_out).
+        let usdc_admin = Address::generate(&env);
+        let xlm_admin = Address::generate(&env);
+        let usdc = env
+            .register_stellar_asset_contract_v2(usdc_admin.clone())
+            .address();
+        let xlm = env
+            .register_stellar_asset_contract_v2(xlm_admin.clone())
+            .address();
+
+        // REAL FallbackAMM(usdc, xlm) + seeded liquidity (so swap yields positive out).
+        let amm_id = env.register(FallbackAMM, ());
+        let amm = FallbackAMMClient::new(&env, &amm_id);
+        amm.init(&usdc, &xlm);
+        let lp = Address::generate(&env);
+        token::StellarAssetClient::new(&env, &usdc).mint(&lp, &1_000_000i128);
+        token::StellarAssetClient::new(&env, &xlm).mint(&lp, &1_000_000i128);
+        amm.add_liquidity(&lp, &1_000_000i128, &1_000_000i128);
+
+        // GovVault proposal binding the REAL SAC pair (usdc -> xlm), cap = amount_cap.
+        let (gv, gov) = fixtures::deploy_gov(&env);
+        let id = if approved {
+            fixtures::approve_swap(&env, &gv, &usdc, &xlm, amount_cap, amount_cap)
+        } else {
+            fixtures::create_open_swap(&env, &gv, &usdc, &xlm, amount_cap, amount_cap)
+        };
+
+        // REAL session key + verifier.
+        let sk = SigningKey::from_bytes(&[7u8; 32]);
+        let pubkey = BytesN::from_array(&env, &sk.verifying_key().to_bytes());
+        let verifier = env.register(TestEd25519Verifier, ());
+
+        // AgentPolicy installed on the treasury host's Default rule; approved_amm == the REAL AMM,
+        // treasury_asset == usdc.
+        let policy_id = env.register(AgentPolicy, ());
+        let params = AgentPolicyParams {
+            gov_vault: gov.clone(),
+            approved_amm: amm_id.clone(),
+            treasury_asset: usdc.clone(),
+            proposal_id: id,
+        };
+        let signers: Vec<OzSigner> = soroban_sdk::vec![
+            &env,
+            OzSigner::External(verifier.clone(), Bytes::from_array(&env, &pubkey.to_array()))
+        ];
+        let mut policies: Map<Address, Val> = Map::new(&env);
+        policies.set(policy_id.clone(), params.into_val(&env));
+        let treasury = env.register(TestSmartAccount, (signers, policies));
+
+        FullAssetsSetup {
+            env,
+            treasury,
+            gov,
+            amm: amm_id,
+            usdc,
+            usdc_admin,
+            xlm,
+            xlm_admin,
+            id,
+            cap: amount_cap,
+            sk,
+            pubkey,
+            verifier,
+            rule_id: 0u32,
+        }
+    }
+
+    /// Hero loop (M2-6): the gov proposal is APPROVED (quorum reached) and bound to the REAL usdc->xlm
+    /// SAC pair on the REAL FallbackAMM.
+    pub fn setup_full_with_assets(amount_cap: i128) -> FullAssetsSetup {
+        build_full(amount_cap, true)
+    }
+
+    /// Negative loop (M2-7): SAME wiring but the proposal stays Open (no quorum) -> is_approved == false.
+    pub fn setup_full_open_with_assets(amount_cap: i128) -> FullAssetsSetup {
+        build_full(amount_cap, false)
+    }
 }
 
 // ===========================================================================
@@ -1175,4 +1291,113 @@ mod handrolled {
         let auth_contexts: Vec<Context> = soroban_sdk::vec![&s.env, ctx1, ctx2];
         assert_eq!(hr_check_ctxs(&s, &sk, auth_contexts), err(PolicyError::MultiCall));
     }
+}
+
+// ===========================================================================
+// Phase 4 — Cross-contract HERO-LOOP integration (vote->approve->agent-swap->balances move;
+// quorum-blocked negative). The ON-CHAIN proof: a hallucinating agent literally cannot move treasury
+// funds wrong, and a correctly-approved swap moves REAL SAC balances through the policy-gated wallet.
+// ===========================================================================
+mod integration {
+    use super::*;
+    use soroban_sdk::{testutils::MockAuth, testutils::MockAuthInvoke, token};
+
+    /// Task M2-6 — THE HERO LOOP, on-chain. vote -> Approved+cap -> the agent's session key signs the
+    /// swap -> the policy authorizes it through the host (`enforce` runs with a REAL ed25519 signature)
+    /// -> FallbackAMM.swap executes and REAL SAC balances move (USDC down, XLM up) -> mark_executed.
+    ///
+    /// AUTH BOUNDARY (charter rule 4): the gate-pass is proven by driving the treasury host's
+    /// __check_auth over the EXACT swap context with the REAL session signature (NOT mock_all_auths
+    /// for the signer-under-test) — `env.try_invoke_contract_check_auth`, the same host Err-surface
+    /// primitive used in M2-3/M2-V1c (the soroban-sdk 26.0.1 contractimpl for CustomAccountInterface
+    /// does NOT generate a `try___check_auth` client method, recorded divergence from the plan snippet).
+    /// The balance-moving FallbackAMM.swap is then submitted with `mock_auths` SCOPED to the treasury
+    /// host's swap call (so `to.require_auth()` inside the AMM resolves for the treasury) — the gate-pass
+    /// is real and separately asserted, and the balance move is observed on-chain.
+    #[test]
+    fn hero_loop_moves_balances() {
+        let s = gates::setup_full_with_assets(10_000i128);
+
+        // Fund the treasury with 10_000 USDC (the asset_in for the approved swap).
+        token::StellarAssetClient::new(&s.env, &s.usdc).mint(&s.treasury, &10_000i128);
+        let usdc = token::Client::new(&s.env, &s.usdc);
+        let xlm = token::Client::new(&s.env, &s.xlm);
+        let treasury_usdc_before = usdc.balance(&s.treasury);
+        let treasury_xlm_before = xlm.balance(&s.treasury);
+        assert_eq!(treasury_usdc_before, 10_000i128, "treasury funded with 10_000 USDC");
+        assert_eq!(treasury_xlm_before, 0i128, "treasury holds no XLM before the swap");
+
+        // 1) GATE-PASS PROOF: drive the treasury host's __check_auth over the EXACT swap context with
+        //    a REAL session signature. enforce runs the gates LIVE (is_approved, !executed, cap, asset
+        //    binding) and must return Ok(()). If enforce did NOT run, an over-cap/unapproved swap would
+        //    wrongly pass — the negative test (execute_without_quorum_is_blocked) proves it rejects.
+        let swap_ctx = gates::swap_ctx(&s.env, &s.amm, &s.usdc, 10_000, 1, &s.treasury);
+        let auth_contexts: Vec<Context> = soroban_sdk::vec![&s.env, swap_ctx];
+        let signature_payload = BytesN::from_array(&s.env, &[9u8; 32]);
+        let signed = sign_auth_payload(
+            &s.env, &s.verifier, &s.sk, &s.pubkey, &signature_payload, s.rule_id, false,
+        );
+        s.env.mock_all_auths_allowing_non_root_auth();
+        let gate = check_auth(&s.env, &s.treasury, &signature_payload, &signed, &auth_contexts);
+        assert_eq!(
+            gate,
+            Ok(()),
+            "the approved, in-cap swap must pass enforce under a REAL host auth (got {:?})",
+            gate
+        );
+
+        // 2) BALANCE-MOVING SWAP: the treasury host authorizes FallbackAMM.swap(usdc, 10_000, 1, to=treasury).
+        //    mock_auths SCOPED to the treasury's swap satisfies `to.require_auth()` inside the AMM (the
+        //    swap's `to`/`from` IS the treasury). The AMM's swap pulls asset_in via
+        //    `usdc.transfer(treasury -> amm, 10_000)` whose `from` is the treasury — that nested transfer
+        //    is the sub-invoke the treasury must also authorize. (The asset_out transfer amm -> treasury
+        //    is authorized by the AMM itself, not the treasury.) USDC leaves, XLM arrives.
+        let usdc_transfer_sub = MockAuthInvoke {
+            contract: &s.usdc,
+            fn_name: "transfer",
+            args: (s.treasury.clone(), s.amm.clone(), 10_000i128).into_val(&s.env),
+            sub_invokes: &[],
+        };
+        let out = swap_venue::SwapVenueClient::new(&s.env, &s.amm)
+            .mock_auths(&[MockAuth {
+                address: &s.treasury,
+                invoke: &MockAuthInvoke {
+                    contract: &s.amm,
+                    fn_name: "swap",
+                    args: (s.usdc.clone(), 10_000i128, 1i128, s.treasury.clone()).into_val(&s.env),
+                    sub_invokes: &[usdc_transfer_sub],
+                },
+            }])
+            .swap(&s.usdc, &10_000i128, &1i128, &s.treasury);
+
+        // 3) mark_executed (single-shot replay guard). GovVault executor auth mocked for THIS call only.
+        s.env.mock_all_auths_allowing_non_root_auth();
+        GovVaultClient::new(&s.env, &s.gov).mark_executed(&s.id);
+
+        // ASSERT real on-chain balance movement THROUGH the policy-gated treasury wallet.
+        let treasury_usdc_after = usdc.balance(&s.treasury);
+        let treasury_xlm_after = xlm.balance(&s.treasury);
+        assert!(
+            treasury_usdc_after < treasury_usdc_before,
+            "USDC must LEAVE the treasury (before {} -> after {})",
+            treasury_usdc_before, treasury_usdc_after
+        );
+        assert!(
+            treasury_xlm_after > treasury_xlm_before,
+            "XLM must ARRIVE in the treasury (before {} -> after {})",
+            treasury_xlm_before, treasury_xlm_after
+        );
+        // exact deltas: all 10_000 USDC spent; XLM out == constant-product result == swap return value.
+        assert_eq!(treasury_usdc_after, 0i128, "all 10_000 USDC spent");
+        assert_eq!(treasury_xlm_after, out, "treasury XLM == the swap's reported out");
+        assert!(out > 0, "swap must return a positive out (got {})", out);
+
+        // the proposal is now Executed (single-shot replay guard fired).
+        assert_eq!(
+            GovVaultClient::new(&s.env, &s.gov).proposal(&s.id).status,
+            shadowkit_shared::ProposalStatus::Executed,
+            "proposal must be Executed after the hero loop"
+        );
+    }
+
 }
