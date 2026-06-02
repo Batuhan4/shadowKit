@@ -288,9 +288,11 @@ impl GovVault {
         if !fr_eq_bytes32(&env, &pub_signals.get(PS_MERKLE_ROOT).unwrap(), &stored_root) {
             return Err(GovError::StaleMerkleRoot);
         }
-        // 2d) sealedCommitmentHash signal == ciphertext's commitment (binds proof <-> stored blob).
+        // 2d) C1b: bind ciphertext<->proof. pub_signals[3] is the in-circuit
+        // Poseidon(direction,weight,sealKey) (foundation §4); the stored commitment MUST equal it,
+        // else the ciphertext is not the one proved -> RevealMismatch.
         if !fr_eq_bytes32(&env, &pub_signals.get(PS_SEALED_COMMIT).unwrap(), &sealed_ciphertext.sealed_commitment_hash) {
-            return Err(GovError::InvalidProof);
+            return Err(GovError::RevealMismatch);
         }
         // 3) VERIFY the proof on-chain (PRIMARY) or trust the coordinator-asserted flag (FALLBACK).
         #[cfg(not(feature = "offchain-verify"))]

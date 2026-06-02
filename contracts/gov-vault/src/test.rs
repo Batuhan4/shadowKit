@@ -197,6 +197,28 @@ fn cast_vote_stores_full_sealed_vote() {
 }
 
 // ============================================================================
+// Task C1b — cast_vote binds the ciphertext commitment to the proof (pub_signals[3])
+// ============================================================================
+
+#[test]
+fn cast_vote_rejects_commitment_not_bound_to_proof() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (gov, _v) = deploy_with_committed_root(&env);
+    let id = create_default_proposal(&env, &gov);
+    // valid fixture proof/signals, but the ciphertext commitment is WRONG (not == pub_signals[3]).
+    let wrong = BytesN::from_array(&env, &[0x11; 32]);
+    assert_ne!(wrong, sealed_commit_be32(&env));
+    let sealed = SealedVote {
+        round: 7u64,
+        ciphertext: Bytes::from_array(&env, b"ct"),
+        sealed_commitment_hash: wrong,
+    };
+    let r = gov.try_cast_vote(&id, &committed_proof(&env), &committed_public_signals(&env), &sealed);
+    assert_eq!(r, Err(Ok(GovError::RevealMismatch)));
+}
+
+// ============================================================================
 // Task 4.23 — double-vote (same nullifier) -> NullifierUsed
 // ============================================================================
 
@@ -274,7 +296,7 @@ fn stale_merkle_root_rejected() {
 }
 
 // ============================================================================
-// Task 4.25c — sealed-commitment mismatch -> InvalidProof
+// Task 4.25c — sealed-commitment mismatch -> RevealMismatch (M5 C1b: was InvalidProof in M4)
 // ============================================================================
 
 #[test]
@@ -290,7 +312,7 @@ fn sealed_commitment_mismatch_rejected() {
         sealed_commitment_hash: BytesN::from_array(&env, &[9u8; 32]), // != public signal[3]
     };
     let res = gov.try_cast_vote(&id, &committed_proof(&env), &committed_public_signals(&env), &sealed);
-    assert_eq!(res, Err(Ok(GovError::InvalidProof)));
+    assert_eq!(res, Err(Ok(GovError::RevealMismatch)));
 }
 
 // ============================================================================
