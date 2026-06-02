@@ -4,8 +4,8 @@ use soroban_sdk::{contracttype, Address, BytesN, Vec};
 /// QuorumCfg, Executor, NextId, Proposal(u32), SealedVotes(u32), Nullifier(BytesN<32>).
 /// M4 (Task 4.19a) reintroduces Verifier/MerkleRoot (M1 deferred them) and POPULATES SealedVotes +
 /// Nullifier via the sealed `cast_vote`. The M1 plaintext VoteWeights/VoterVoted snapshot path was
-/// RETIRED in M4: the snapshot Merkle root + zk proof replace per-address weights. YesWeight/NoWeight
-/// remain (M1 plaintext `close` machinery, kept UNCHANGED — M5 replaces close with close_and_reveal).
+/// RETIRED in M4: the snapshot Merkle root + zk proof replace per-address weights. M5 C7 RETIRES the
+/// remaining M1 plaintext-tally keys (YesWeight/NoWeight) — close_and_reveal re-aggregates on-chain.
 /// `Executor` (foundation §2.2) is the authorized `mark_executed` caller (the AgentPolicy address);
 /// POPULATED in M2 via `set_executor`.
 #[contracttype]
@@ -21,9 +21,8 @@ pub enum DataKey {
     Proposal(u32),         // ProposalRecord (persistent)
     SealedVotes(u32),      // Vec<SealedVote> (persistent) — M4 sealed cast_vote
     Nullifier(BytesN<32>), // () (persistent) — M4 double-vote guard
-    // ---- M1 plaintext `close` machinery (kept UNCHANGED; M5 retires it) ----
-    YesWeight(u32),        // i128 running plaintext yes weight (persistent)
-    NoWeight(u32),         // i128 running plaintext no weight (persistent)
+    // M5 C7: the M1 plaintext running-tally keys (YesWeight/NoWeight) are RETIRED. The sealed reveal
+    // (close_and_reveal) re-aggregates SealedVotes(id) on-chain; there is no running plaintext tally.
 }
 
 /// Internal persistent record projected into ProposalView by `proposal()`.
@@ -120,21 +119,6 @@ pub fn get_proposal(env: &Env, id: u32) -> ProposalRecord {
 pub fn try_get_proposal(env: &Env, id: u32) -> Option<ProposalRecord> {
     env.storage().persistent().get(&DataKey::Proposal(id))
 }
-pub fn add_yes(env: &Env, id: u32, w: i128) {
-    let cur: i128 = env.storage().persistent().get(&DataKey::YesWeight(id)).unwrap_or(0);
-    env.storage().persistent().set(&DataKey::YesWeight(id), &(cur + w));
-}
-pub fn add_no(env: &Env, id: u32, w: i128) {
-    let cur: i128 = env.storage().persistent().get(&DataKey::NoWeight(id)).unwrap_or(0);
-    env.storage().persistent().set(&DataKey::NoWeight(id), &(cur + w));
-}
-pub fn get_yes(env: &Env, id: u32) -> i128 {
-    env.storage().persistent().get(&DataKey::YesWeight(id)).unwrap_or(0)
-}
-pub fn get_no(env: &Env, id: u32) -> i128 {
-    env.storage().persistent().get(&DataKey::NoWeight(id)).unwrap_or(0)
-}
-
 pub fn to_view(id: u32, rec: &ProposalRecord) -> ProposalView {
     ProposalView {
         id,

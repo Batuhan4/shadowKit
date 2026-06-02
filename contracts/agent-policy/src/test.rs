@@ -28,7 +28,7 @@ pub mod fixtures {
     use core::str::FromStr;
     use serde::Deserialize;
     use soroban_sdk::{crypto::bls12_381::{Fr, G1Affine, G2Affine, G1_SERIALIZED_SIZE, G2_SERIALIZED_SIZE}, Bytes, BytesN, U256, Vec};
-    use shadowkit_shared::SealedVote;
+    use shadowkit_shared::{SealedVote, VoteDecryption};
     use groth16_verifier::{Groth16Verifier, Proof};
 
     #[derive(Deserialize)]
@@ -157,7 +157,12 @@ pub mod fixtures {
         // single committed sealed vote (proposalId 0) -> participation 1 >= min_voters 1 -> Approved.
         gv.cast_vote(&id, &committed_proof(env), &committed_public_signals(env), &committed_sealed(env));
         set_time(env, 2_001); // advance past deadline
-        gv.close(&id);
+        // M5 C7: the plaintext `close` is retired; close via the sealed reveal path. The committed
+        // vote decrypts to direction=1, weight=1000 (circuits/vote/fixtures/input.json); under the
+        // lenient quorum (min_voters:1, yes_must_exceed_no:false) this Approves.
+        let decs = soroban_sdk::vec![env,
+            VoteDecryption { direction: 1, weight: 1000, sealed_commitment_hash: sealed_commit_be32(env) }];
+        gv.close_and_reveal(&id, &1000i128, &0i128, &decs);
         id
     }
 

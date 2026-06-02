@@ -697,8 +697,25 @@ fn test_cast_vote_emits_votecast_event() {
 // close: weighted tally (0 in M4; sealed votes do not feed plaintext tally) + QuorumCfg
 // ============================================================================
 
+// The committed sealed vote decrypts to direction=1, weight=1000 (circuits/vote/fixtures/input.json).
+const COMMITTED_DIR: u32 = 1;
+const COMMITTED_WEIGHT: i128 = 1000;
+
+/// Close a proposal that holds exactly the ONE committed sealed vote via the sealed reveal path.
+/// The single decryption binds to the committed commitment (sealed_commit_be32) and matches the
+/// claimed aggregate (yes=1000 since the vote is a YES of weight 1000).
+fn close_committed(env: &Env, gov: &GovVaultClient, id: u32) {
+    let decs = soroban_sdk::vec![env,
+        VoteDecryption {
+            direction: COMMITTED_DIR,
+            weight: COMMITTED_WEIGHT,
+            sealed_commitment_hash: sealed_commit_be32(env),
+        }];
+    gov.close_and_reveal(&id, &COMMITTED_WEIGHT, &0i128, &decs);
+}
+
 /// Build an APPROVED proposal: deploy lenient, create proposal, cast the committed sealed vote
-/// (participation=1), advance past deadline, close. Returns (gov, id, spec_unused).
+/// (participation=1, yes=1000), advance past deadline, close via the sealed reveal. Returns (gov, id).
 fn approved_proposal(env: &Env) -> (GovVaultClient<'static>, u32) {
     let (gov, _v) = deploy_lenient(env);
     set_time(env, 1_000);
@@ -706,24 +723,36 @@ fn approved_proposal(env: &Env) -> (GovVaultClient<'static>, u32) {
     let id = gov.create_proposal(&spec, &15_000i128, &2_000u64);
     gov.cast_vote(&id, &committed_proof(env), &committed_public_signals(env), &committed_sealed(env));
     set_time(env, 2_001); // past deadline
-    gov.close(&id);
+    close_committed(env, &gov, id);
     (gov, id)
 }
 
+// ============================================================================
+// Task C7 — the M1 plaintext `close` is RETIRED; close_and_reveal is the sole close path.
+// ============================================================================
+
 #[test]
-fn test_close_quorum_pass_sets_approved() {
+fn only_sealed_close_path_exists() {
+    // Type-level reference: the sealed reveal path MUST exist as the single close entrypoint.
+    // The plaintext M1 `close`/`try_close` are removed from GovVaultClient (a `t.client.close(&id)`
+    // call would no longer compile), so this milestone has exactly one close path.
+    let _ = GovVaultClient::close_and_reveal;
+}
+
+#[test]
+fn close_and_reveal_quorum_pass_sets_approved() {
     let env = Env::default();
     env.mock_all_auths();
     let (gov, id) = approved_proposal(&env);
     let view = gov.proposal(&id);
     assert_eq!(view.status, ProposalStatus::Approved);
-    // M4 sealed votes do not feed the plaintext tally -> 0/0 (real reveal lands in M5).
-    assert_eq!(view.weighted_yes, Some(0));
+    // The sealed reveal feeds the REAL weighted tally now (yes=1000 from the committed vote).
+    assert_eq!(view.weighted_yes, Some(1000));
     assert_eq!(view.weighted_no, Some(0));
 }
 
 #[test]
-fn test_close_quorum_fail_low_participation() {
+fn close_and_reveal_quorum_fail_low_participation() {
     let env = Env::default();
     env.mock_all_auths();
     // strict quorum (min_voters:3); a single sealed vote -> participation 1 < 3 -> Rejected.
@@ -733,66 +762,32 @@ fn test_close_quorum_fail_low_participation() {
     let id = gov.create_proposal(&spec, &15_000i128, &2_000u64);
     gov.cast_vote(&id, &committed_proof(&env), &committed_public_signals(&env), &committed_sealed(&env));
     set_time(&env, 2_001);
-    gov.close(&id);
+    close_committed(&env, &gov, id);
     let view = gov.proposal(&id);
     assert_eq!(view.status, ProposalStatus::Rejected);
 }
 
 #[test]
-fn test_close_before_deadline_rejected() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (gov, _v) = deploy_lenient(&env);
-    set_time(&env, 1_000);
-    let spec = sample_spec(&env);
-    let id = gov.create_proposal(&spec, &15_000i128, &5_000u64);
-    set_time(&env, 1_500); // before deadline 5000
-    assert_eq!(gov.try_close(&id), Err(Ok(GovError::DeadlineNotReached)));
-}
-
-#[test]
-fn test_close_twice_rejected() {
+fn close_and_reveal_twice_rejected() {
     let env = Env::default();
     env.mock_all_auths();
     let (gov, id) = approved_proposal(&env);
-    assert_eq!(gov.try_close(&id), Err(Ok(GovError::AlreadyRevealed)));
+    // second close on the same proposal -> AlreadyRevealed (weighted_yes already set).
+    let decs = soroban_sdk::vec![&env,
+        VoteDecryption { direction: COMMITTED_DIR, weight: COMMITTED_WEIGHT, sealed_commitment_hash: sealed_commit_be32(&env) }];
+    assert_eq!(gov.try_close_and_reveal(&id, &COMMITTED_WEIGHT, &0i128, &decs), Err(Ok(GovError::AlreadyRevealed)));
 }
 
 #[test]
-fn test_close_emits_proposalclosed_event() {
-    use soroban_sdk::{vec, Event};
-    use soroban_sdk::testutils::Events;
-    let env = Env::default();
-    env.mock_all_auths();
-    let (gov, _v) = deploy_with_committed_root(&env); // strict quorum, no votes
-    let contract_id = gov.address.clone();
-    set_time(&env, 1_000);
-    let spec = sample_spec(&env);
-    let id = gov.create_proposal(&spec, &15_000i128, &2_000u64);
-    set_time(&env, 2_001);
-    gov.close(&id);
-
-    // approved=false (0 voters < min 3), weighted_yes=0, weighted_no=0
-    let closed = crate::ProposalClosed { id, approved: false, weighted_yes: 0i128, weighted_no: 0i128 };
-    assert_eq!(
-        env.events().all(),
-        vec![
-            &env,
-            (contract_id.clone(), closed.topics(&env), closed.data(&env)),
-        ]
-    );
-}
-
-#[test]
-fn test_close_emits_proposalclosed_event_approved() {
+fn close_and_reveal_emits_proposalclosed_event_approved() {
     use soroban_sdk::Event;
     use soroban_sdk::testutils::Events;
     let env = Env::default();
     env.mock_all_auths();
     let (gov, id) = approved_proposal(&env);
     let contract_id = gov.address.clone();
-    // The LAST emitted event must be the approved ProposalClosed (weighted 0/0 in M4).
-    let closed = crate::ProposalClosed { id, approved: true, weighted_yes: 0i128, weighted_no: 0i128 };
+    // The LAST emitted event must be the approved ProposalClosed (real weighted yes=1000/no=0).
+    let closed = crate::ProposalClosed { id, approved: true, weighted_yes: 1000i128, weighted_no: 0i128 };
     let all = env.events().all();
     let xdr_events = all.events();
     let last = xdr_events.last().unwrap().clone();
@@ -822,7 +817,7 @@ fn test_is_approved_false_for_rejected() {
     let id = gov.create_proposal(&spec, &15_000i128, &2_000u64);
     gov.cast_vote(&id, &committed_proof(&env), &committed_public_signals(&env), &committed_sealed(&env));
     set_time(&env, 2_001);
-    gov.close(&id);
+    close_committed(&env, &gov, id);
     assert_eq!(gov.is_approved(&id), false);
 }
 
@@ -882,7 +877,7 @@ fn test_mark_executed_requires_approved() {
     let id = gov.create_proposal(&spec, &15_000i128, &2_000u64);
     gov.cast_vote(&id, &committed_proof(&env), &committed_public_signals(&env), &committed_sealed(&env));
     set_time(&env, 2_001);
-    gov.close(&id);
+    close_committed(&env, &gov, id);
     assert_eq!(gov.is_approved(&id), false);
     let agent = Address::generate(&env);
     gov.set_executor(&agent);
@@ -907,7 +902,7 @@ fn integration_vote_to_approve_flow() {
     assert_eq!(gov.proposal(&id).weighted_yes, None);
 
     set_time(&env, 2_001);
-    gov.close(&id);
+    close_committed(&env, &gov, id);
 
     let view = gov.proposal(&id);
     assert_eq!(view.status, ProposalStatus::Approved);
@@ -933,7 +928,7 @@ fn integration_no_quorum_blocks_execution() {
     let id = gov.create_proposal(&spec, &15_000i128, &2_000u64);
     gov.cast_vote(&id, &committed_proof(&env), &committed_public_signals(&env), &committed_sealed(&env));
     set_time(&env, 2_001);
-    gov.close(&id);
+    close_committed(&env, &gov, id);
     assert_eq!(gov.is_approved(&id), false);
     let agent = Address::generate(&env);
     gov.set_executor(&agent);

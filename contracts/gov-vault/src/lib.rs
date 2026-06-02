@@ -147,8 +147,6 @@ impl GovVault {
             executed: false,
         };
         storage::set_proposal(&env, id, &rec);
-        env.storage().persistent().set(&storage::DataKey::YesWeight(id), &0i128);
-        env.storage().persistent().set(&storage::DataKey::NoWeight(id), &0i128);
         ProposalCreated { id, deadline, cap }.publish(&env);
         Ok(id)
     }
@@ -169,33 +167,8 @@ impl GovVault {
         }
     }
 
-    /// Close after deadline: compute plaintext weighted tally from running yes/no weights (M4 sealed
-    /// votes do NOT feed these, so weighted_yes/no are 0 until M5's close_and_reveal), apply QuorumCfg
-    /// (majority + votes_cast>=min_voters), set Approved|Rejected. Single close only.
-    /// M1 PLAINTEXT analogue of foundation §2.2 close_and_reveal — kept UNCHANGED in M4 (M5 replaces it).
-    /// CARRY-FORWARD: returns Result<(), GovError> (NOT panic_with_error!).
-    pub fn close(env: Env, id: u32) -> Result<(), GovError> {
-        let mut rec = storage::get_proposal(&env, id);
-        if rec.weighted_yes.is_some() {
-            return Err(GovError::AlreadyRevealed);
-        }
-        if env.ledger().timestamp() <= rec.deadline {
-            return Err(GovError::DeadlineNotReached);
-        }
-        let yes = storage::get_yes(&env, id);
-        let no = storage::get_no(&env, id);
-        let cfg = storage::get_quorum_cfg(&env);
-        let majority_ok = if cfg.yes_must_exceed_no { yes > no } else { yes >= no };
-        let participation_ok = rec.votes_cast >= cfg.min_voters;
-        let approved = majority_ok && participation_ok;
-        rec.weighted_yes = Some(yes);
-        rec.weighted_no = Some(no);
-        rec.status = if approved { ProposalStatus::Approved } else { ProposalStatus::Rejected };
-        storage::set_proposal(&env, id, &rec);
-        ProposalClosed { id, approved, weighted_yes: yes, weighted_no: no }.publish(&env);
-        Ok(())
-    }
-
+    /// C7: the M1 plaintext `close(env, id)` is RETIRED. `close_and_reveal` (below) is the SOLE close
+    /// path — it re-aggregates the sealed votes on-chain and decides quorum on the weighted totals.
     /// True iff status == Approved (read by AgentPolicy in M2). View; no auth.
     pub fn is_approved(env: Env, id: u32) -> bool {
         match storage::try_get_proposal(&env, id) {

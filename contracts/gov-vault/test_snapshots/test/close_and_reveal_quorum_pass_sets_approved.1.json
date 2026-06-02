@@ -116,7 +116,7 @@
                   "i128": "15000"
                 },
                 {
-                  "u64": "5000"
+                  "u64": "2000"
                 }
               ]
             }
@@ -125,12 +125,14 @@
         }
       ]
     ],
+    [],
+    [],
     []
   ],
   "ledger": {
     "protocol_version": 26,
     "sequence_number": 10,
-    "timestamp": 1500,
+    "timestamp": 2001,
     "network_id": "0000000000000000000000000000000000000000000000000000000000000000",
     "base_reserve": 10,
     "min_persistent_entry_ttl": 16,
@@ -170,17 +172,15 @@
               "key": {
                 "vec": [
                   {
-                    "symbol": "NoWeight"
+                    "symbol": "Nullifier"
                   },
                   {
-                    "u32": 0
+                    "bytes": "676f93a43c91a6b741a05e11e4fd521dedcc245c37145a504bbc663af6596638"
                   }
                 ]
               },
               "durability": "persistent",
-              "val": {
-                "i128": "0"
-              }
+              "val": "void"
             }
           },
           "ext": "v0"
@@ -273,7 +273,7 @@
                       "symbol": "deadline"
                     },
                     "val": {
-                      "u64": "5000"
+                      "u64": "2000"
                     }
                   },
                   {
@@ -291,7 +291,7 @@
                     "val": {
                       "vec": [
                         {
-                          "symbol": "Open"
+                          "symbol": "Approved"
                         }
                       ]
                     }
@@ -301,20 +301,24 @@
                       "symbol": "votes_cast"
                     },
                     "val": {
-                      "u32": 0
+                      "u32": 1
                     }
                   },
                   {
                     "key": {
                       "symbol": "weighted_no"
                     },
-                    "val": "void"
+                    "val": {
+                      "i128": "0"
+                    }
                   },
                   {
                     "key": {
                       "symbol": "weighted_yes"
                     },
-                    "val": "void"
+                    "val": {
+                      "i128": "1000"
+                    }
                   }
                 ]
               }
@@ -334,7 +338,7 @@
               "key": {
                 "vec": [
                   {
-                    "symbol": "YesWeight"
+                    "symbol": "SealedVotes"
                   },
                   {
                     "u32": 0
@@ -343,7 +347,36 @@
               },
               "durability": "persistent",
               "val": {
-                "i128": "0"
+                "vec": [
+                  {
+                    "map": [
+                      {
+                        "key": {
+                          "symbol": "ciphertext"
+                        },
+                        "val": {
+                          "bytes": "7365616c65642d626c6f62"
+                        }
+                      },
+                      {
+                        "key": {
+                          "symbol": "round"
+                        },
+                        "val": {
+                          "u64": "0"
+                        }
+                      },
+                      {
+                        "key": {
+                          "symbol": "sealed_commitment_hash"
+                        },
+                        "val": {
+                          "bytes": "514acc05a6547bf5935027d549ebb2f8b400084d1b5e7aace40ac6ae877e0801"
+                        }
+                      }
+                    ]
+                  }
+                ]
               }
             }
           },
