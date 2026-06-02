@@ -1,1 +1,4 @@
-{ "extends": "../../tsconfig.base.json", "include": ["src"] }
+{
+  "extends": "../../tsconfig.base.json",
+  "include": ["src", "test", "../zk-prover/src/snarkjs.d.ts"]
+}
