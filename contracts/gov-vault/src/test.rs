@@ -495,6 +495,22 @@ fn reveal_wrong_commitment_rejected() {
     assert_eq!(r, Err(Ok(GovError::RevealMismatch)));
 }
 
+#[test]
+fn reveal_bad_direction_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (gov, _v) = deploy_with_committed_root(&env);
+    let (id, h0, h1, h2) = setup_revealable(&env, &gov);
+    let decs = soroban_sdk::vec![&env,
+        VoteDecryption { direction: 2, weight: 100, sealed_commitment_hash: h0 }, // not a bit
+        VoteDecryption { direction: 1, weight: 100, sealed_commitment_hash: h1 },
+        VoteDecryption { direction: 0, weight: 50,  sealed_commitment_hash: h2 }];
+    // with direction==2 silently counted as "no" (the pre-C5c else-branch), real sums would be
+    // yes=100, no=150; the attacker submits those, so without the bit guard it SUCCEEDS.
+    let r = gov.try_close_and_reveal(&id, &100i128, &150i128, &decs);
+    assert_eq!(r, Err(Ok(GovError::RevealMismatch)));
+}
+
 // ============================================================================
 // Structural tests (carried from M1, migrated to the foundation init signature)
 // ============================================================================

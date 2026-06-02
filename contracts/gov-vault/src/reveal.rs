@@ -29,11 +29,11 @@ pub fn reaggregate(
         if d.sealed_commitment_hash != s.sealed_commitment_hash {
             panic_with_error!(env, GovError::RevealMismatch);
         }
-        // C3: no direction-bit guard yet (added C5c). direction==1 -> yes, anything else -> no.
-        if d.direction == 1 {
-            yes += d.weight;
-        } else {
-            no += d.weight;
+        // C5c: (3) direction MUST be a bit {0,1}; any other value is a malformed reveal.
+        match d.direction {
+            1 => yes += d.weight,
+            0 => no += d.weight,
+            _ => panic_with_error!(env, GovError::RevealMismatch),
         }
     }
     (yes, no)
