@@ -45,7 +45,7 @@ function makeFakeGemini(deltas: string[]) {
   };
 }
 
-// CHARTER GUARD (rule 4): the committed cassette MUST be a REAL gemini-2.5-flash capture, not a
+// CHARTER GUARD (rule 4): the committed cassette MUST be a REAL gemini-3.1-flash-lite capture, not a
 // hand-authored literal. These assertions fail CI if a fabricated/placeholder cassette is checked
 // in — the capturedAt must not be the documented placeholder sentinel, the model must be the real
 // id, a real usage block must be present, and the model's finalText must parse to an IN-CAP plan
@@ -83,7 +83,7 @@ describe("GeminiPlanner.plan (network-stubbed cassette)", () => {
   it("returns a valid, in-cap ActionPlan parsed from the real structured output", async () => {
     const planner = new GeminiPlanner({
       apiKey: "test",
-      model: "gemini-2.5-flash",
+      model: "gemini-3.1-flash-lite",
       client: makeFakeGemini(cassette.textDeltas),
     });
     const plan = await planner.plan(spec, cap, market);
@@ -109,7 +109,7 @@ describe("GeminiPlanner.plan (network-stubbed cassette)", () => {
     });
     const planner = new GeminiPlanner({
       apiKey: "test",
-      model: "gemini-2.5-flash",
+      model: "gemini-3.1-flash-lite",
       client: makeFakeGemini([underCapFinal]),
     });
     const plan = await planner.plan(spec, cap, market);
@@ -126,7 +126,7 @@ describe("GeminiPlanner.plan (network-stubbed cassette)", () => {
     });
     const planner = new GeminiPlanner({
       apiKey: "test",
-      model: "gemini-2.5-flash",
+      model: "gemini-3.1-flash-lite",
       client: makeFakeGemini([overCapFinal]),
     });
     await expect(planner.plan(spec, cap, market)).rejects.toThrowError(/OVER_CAP/);
@@ -135,7 +135,7 @@ describe("GeminiPlanner.plan (network-stubbed cassette)", () => {
   it("THROWS when the model returns malformed JSON (not a faked success)", async () => {
     const planner = new GeminiPlanner({
       apiKey: "test",
-      model: "gemini-2.5-flash",
+      model: "gemini-3.1-flash-lite",
       client: makeFakeGemini(["not json at all"]),
     });
     await expect(planner.plan(spec, cap, market)).rejects.toThrow();
@@ -145,7 +145,7 @@ describe("GeminiPlanner.plan (network-stubbed cassette)", () => {
     const wrongSpec: ActionSpec = { ...spec, assetOut: "" };
     const planner = new GeminiPlanner({
       apiKey: "test",
-      model: "gemini-2.5-flash",
+      model: "gemini-3.1-flash-lite",
       client: makeFakeGemini(cassette.textDeltas),
     });
     await expect(planner.plan(wrongSpec, cap, market)).rejects.toThrowError(/WRONG_TARGET/);

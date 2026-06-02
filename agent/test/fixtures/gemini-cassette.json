@@ -1,6 +1,6 @@
 {
   "capturedAt": "2026-06-02T22:09:51.763Z",
-  "model": "gemini-2.5-flash",
+  "model": "gemini-3.1-flash-lite",
   "textDeltas": [
     "{\"amountIn\": \"150000000000\", \"minOut\": \"1231312500000\", \"reasoning\": \"The 'buy",
     "' signal and current price of 8.25 justified deploying the full authorized cap. amountIn is set to the cap, and minOut is set 0.5% below the price-implied output to account for minor sli",

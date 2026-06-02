@@ -8,7 +8,7 @@ import { SYSTEM_PROMPT, ACTION_PLAN_SCHEMA, buildUserMessage } from "../src/prom
 
 const API_KEY = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
 const LIVE = process.env.RUN_LIVE_LLM === "1" && !!API_KEY;
-const MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+const MODEL = process.env.GEMINI_MODEL || "gemini-3.1-flash-lite";
 
 // JUSTIFIED SKIP (charter rule 4): this test makes a REAL, billable network call to the
 // Gemini API and requires a live GEMINI_API_KEY. It is gated behind RUN_LIVE_LLM=1 so CI
@@ -28,7 +28,7 @@ const spec: ActionSpec = {
 const cap = "150000000000";
 const market: MarketData = { pair: "USDC/XLM", price: "8.25", signal: "buy" };
 
-live("GeminiPlanner (LIVE Gemini, gemini-2.5-flash)", () => {
+live("GeminiPlanner (LIVE Gemini, gemini-3.1-flash-lite)", () => {
   it("produces a schema-conforming, in-cap ActionPlan from the real model (primary works alone)", async () => {
     // The LogBus is passed so streaming wiring (Task 5) is exercised end-to-end here too, but this
     // test does NOT assert on streamed deltas — that has its own suite (geminiPlanner.stream.test.ts).
@@ -75,8 +75,8 @@ live("GeminiPlanner (LIVE Gemini, gemini-2.5-flash)", () => {
     expect(BigInt(parsed.minOut) >= BigInt(spec.minOut)).toBe(true);
   }, 60_000);
 
-  it("reports usage metadata (token accounting; implicit caching is automatic on gemini-2.5-flash)", async () => {
-    // Gemini implicit caching is AUTOMATIC on gemini-2.5-flash (no code/markers needed). We do NOT
+  it("reports usage metadata (token accounting; implicit caching is automatic on gemini-3.1-flash-lite)", async () => {
+    // Gemini implicit caching is AUTOMATIC on gemini-3.1-flash-lite (no code/markers needed). We do NOT
     // assert a token threshold (unlike the Anthropic plan). We DO assert the real API reports usage
     // metadata with a non-trivial prompt token count, and that cachedContentTokenCount — when the
     // implicit cache engages — is a numeric field (>= 0). A second identical call MAY report a

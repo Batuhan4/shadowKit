@@ -6,7 +6,7 @@ import type { MarketData } from "./planner.js";
  * FROZEN system instruction for the Gemini planner. Passed via `config.systemInstruction`
  * (verified: @google/genai, ctx7 /googleapis/js-genai "Set System Instructions"). MUST NOT
  * contain dates, ids, or per-request data — keeping it byte-stable maximises Gemini's IMPLICIT
- * caching (automatic on gemini-2.5-flash; no code needed) and keeps planning deterministic.
+ * caching (automatic on gemini-3.1-flash-lite; no code needed) and keeps planning deterministic.
  * All volatile data (cap, spec, market) goes in the user message (buildUserMessage).
  *
  * This is a real, complete bounded-execution policy (constraints + rationale + worked examples +

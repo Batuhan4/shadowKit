@@ -46,12 +46,12 @@ export interface GeminiPlannerConfig {
 }
 
 /**
- * PRIMARY planner (M3). Calls gemini-2.5-flash via the @google/genai streaming API with:
+ * PRIMARY planner (M3). Calls gemini-3.1-flash-lite via the @google/genai streaming API with:
  *  - a frozen system instruction (prompt.ts) carrying the full bounded-execution policy,
  *  - structured JSON output (config.responseMimeType + config.responseSchema) so the result is
  *    machine-checkable,
  *  - streaming (generateContentStream) so reasoning can be surfaced live (Task 5).
- * Gemini implicit caching is AUTOMATIC on gemini-2.5-flash (no code needed; observed in the live
+ * Gemini implicit caching is AUTOMATIC on gemini-3.1-flash-lite (no code needed; observed in the live
  * test as cachedContentTokenCount), so there is no Anthropic-style ≥4096-token frozen-prefix
  * engineering — the byte-stable system instruction simply maximises implicit cache hits.
  *

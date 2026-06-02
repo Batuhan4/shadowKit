@@ -18,7 +18,7 @@ describe("prompt", () => {
     expect(typeof SYSTEM_PROMPT).toBe("string");
     expect(SYSTEM_PROMPT.length).toBeGreaterThan(0);
     // Frozen system instruction MUST NOT interpolate volatile data (no dates/ids).
-    // Gemini uses implicit caching (automatic on gemini-2.5-flash); keeping the system
+    // Gemini uses implicit caching (automatic on gemini-3.1-flash-lite); keeping the system
     // instruction byte-stable maximises implicit cache hits and keeps planning deterministic.
     expect(SYSTEM_PROMPT).not.toMatch(/\d{4}-\d{2}-\d{2}/); // no embedded date
     expect(SYSTEM_PROMPT).not.toMatch(/amountIn=\d|cap of \d|proposalId=\d/i); // no per-request VALUES baked in

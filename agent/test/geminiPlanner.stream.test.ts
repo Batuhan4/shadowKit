@@ -53,7 +53,7 @@ describe("GeminiPlanner streaming → AgentBoardTerminal", () => {
     const jsonChunks = chunkJson(FINAL_JSON, DELTAS.length);
     const planner = new GeminiPlanner({
       apiKey: "test",
-      model: "gemini-2.5-flash",
+      model: "gemini-3.1-flash-lite",
       client: makeFakeGemini(jsonChunks),
       logBus: bus,
     });
@@ -70,7 +70,7 @@ describe("GeminiPlanner streaming → AgentBoardTerminal", () => {
   it("does NOT throw when no LogBus is provided (streaming is optional)", async () => {
     const planner = new GeminiPlanner({
       apiKey: "test",
-      model: "gemini-2.5-flash",
+      model: "gemini-3.1-flash-lite",
       client: makeFakeGemini(chunkJson(FINAL_JSON, 3)),
       // no logBus
     });
@@ -86,7 +86,7 @@ describe("GeminiPlanner streaming → AgentBoardTerminal", () => {
     const [a, b] = chunkJson(FINAL_JSON, 2);
     const planner = new GeminiPlanner({
       apiKey: "test",
-      model: "gemini-2.5-flash",
+      model: "gemini-3.1-flash-lite",
       client: makeFakeGemini([a!, "", b!, ""]),
       logBus: bus,
     });

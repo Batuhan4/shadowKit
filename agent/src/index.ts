@@ -18,9 +18,9 @@ export interface AgentConfig {
   useDeterministicPlanner: boolean;
 }
 
-/** Resolve the planner model: env override wins, else gemini-2.5-flash (foundation §6, configurable). */
+/** Resolve the planner model: env override wins, else gemini-3.1-flash-lite (foundation §6, configurable). */
 function resolveModel(): string {
-  return process.env.GEMINI_MODEL || "gemini-2.5-flash";
+  return process.env.GEMINI_MODEL || "gemini-3.1-flash-lite";
 }
 
 /** TS read-adapter over the GovVault binding (foundation §3.5 GovReader). Invents no contract method —
