@@ -45,7 +45,6 @@ fn test_double_init_rejects() {
 }
 
 use shadowkit_shared::{ActionSpec, SwapKind, ProposalStatus};
-use soroban_sdk::testutils::Ledger as _;
 
 fn sample_spec(env: &Env) -> ActionSpec {
     ActionSpec {
@@ -146,3 +145,119 @@ fn test_create_proposal_rejects_past_deadline() {
     let res = client.try_create_proposal(&spec, &15_000i128, &1_000u64); // deadline == now
     assert_eq!(res, Err(Ok(GovError::DeadlineInPast)));
 }
+
+// ============================================================================
+// Task 5 / Task 6 — cast_vote (happy + 4 guards) + VoteCast event emission
+// ============================================================================
+use soroban_sdk::testutils::{Ledger, LedgerInfo};
+use soroban_sdk::xdr::ToXdr;
+
+fn set_time(env: &Env, ts: u64) {
+    env.ledger().set(LedgerInfo {
+        timestamp: ts,
+        protocol_version: 26, // carry-forward correction: SDK 26.0.1 host rejects proto 25
+        sequence_number: 10,
+        network_id: [0; 32],
+        base_reserve: 10,
+        min_temp_entry_ttl: 16,
+        min_persistent_entry_ttl: 16,
+        max_entry_ttl: 10_000_000,
+    });
+}
+
+// (1) happy path: auth + weight lookup + participation bump, no tally leak
+#[test]
+fn test_cast_vote_happy_updates_participation() {
+    let (env, client, admin, usdc) = setup();
+    let v1 = Address::generate(&env);
+    let cfg = QuorumCfg { min_voters: 3, yes_must_exceed_no: true };
+    let w = weights(&env, &[(v1.clone(), 10)]);
+    env.mock_all_auths();
+    client.init(&admin, &usdc, &cfg, &w);
+    set_time(&env, 1_000);
+    let spec = sample_spec(&env);
+    let id = client.create_proposal(&spec, &15_000i128, &5_000u64); // deadline far ahead
+    // direction 1 = yes
+    client.cast_vote(&id, &v1, &1u32);
+    assert_eq!(client.votes_cast(&id), 1);
+    // still no public tally before close
+    let view = client.proposal(&id);
+    assert_eq!(view.weighted_yes, None);
+    assert_eq!(view.weighted_no, None);
+}
+
+// (2) double-vote by the SAME voter (plaintext analogue of nullifier reuse) -> AlreadyVoted
+#[test]
+fn test_double_vote_same_voter_rejected() {
+    let (env, client, admin, usdc) = setup();
+    let v1 = Address::generate(&env);
+    let cfg = QuorumCfg { min_voters: 3, yes_must_exceed_no: true };
+    let w = weights(&env, &[(v1.clone(), 10)]);
+    env.mock_all_auths();
+    client.init(&admin, &usdc, &cfg, &w);
+    set_time(&env, 1_000);
+    let spec = sample_spec(&env);
+    let id = client.create_proposal(&spec, &15_000i128, &5_000u64);
+    client.cast_vote(&id, &v1, &1u32);
+    // second vote by the SAME voter (even with a different direction) must be rejected
+    let res = client.try_cast_vote(&id, &v1, &0u32);
+    assert_eq!(res, Err(Ok(GovError::AlreadyVoted)));
+    // participation unchanged
+    assert_eq!(client.votes_cast(&id), 1);
+}
+
+// (3) post-deadline vote -> DeadlinePassed
+#[test]
+fn test_post_deadline_vote_rejected() {
+    let (env, client, admin, usdc) = setup();
+    let v1 = Address::generate(&env);
+    let cfg = QuorumCfg { min_voters: 3, yes_must_exceed_no: true };
+    let w = weights(&env, &[(v1.clone(), 10)]);
+    env.mock_all_auths();
+    client.init(&admin, &usdc, &cfg, &w);
+    set_time(&env, 1_000);
+    let spec = sample_spec(&env);
+    let id = client.create_proposal(&spec, &15_000i128, &2_000u64); // deadline = 2000
+    set_time(&env, 2_001); // advance ledger time PAST the deadline
+    let res = client.try_cast_vote(&id, &v1, &1u32);
+    assert_eq!(res, Err(Ok(GovError::DeadlinePassed)));
+    assert_eq!(client.votes_cast(&id), 0);
+}
+
+// (4) ineligible voter (not in the snapshot map) -> NotEligible
+#[test]
+fn test_ineligible_voter_rejected() {
+    let (env, client, admin, usdc) = setup();
+    let v1 = Address::generate(&env);        // eligible
+    let intruder = Address::generate(&env);  // NOT in snapshot
+    let cfg = QuorumCfg { min_voters: 3, yes_must_exceed_no: true };
+    let w = weights(&env, &[(v1.clone(), 10)]);
+    env.mock_all_auths();
+    client.init(&admin, &usdc, &cfg, &w);
+    set_time(&env, 1_000);
+    let spec = sample_spec(&env);
+    let id = client.create_proposal(&spec, &15_000i128, &5_000u64);
+    let res = client.try_cast_vote(&id, &intruder, &1u32);
+    assert_eq!(res, Err(Ok(GovError::NotEligible)));
+    assert_eq!(client.votes_cast(&id), 0);
+}
+
+// (5) malformed direction (neither 0 nor 1) -> InvalidDirection (M1-additive; NOT InvalidProof)
+#[test]
+fn test_bad_direction_rejected() {
+    let (env, client, admin, usdc) = setup();
+    let v1 = Address::generate(&env);
+    let cfg = QuorumCfg { min_voters: 3, yes_must_exceed_no: true };
+    let w = weights(&env, &[(v1.clone(), 10)]);
+    env.mock_all_auths();
+    client.init(&admin, &usdc, &cfg, &w);
+    set_time(&env, 1_000);
+    let spec = sample_spec(&env);
+    let id = client.create_proposal(&spec, &15_000i128, &5_000u64);
+    // direction 2 is invalid; must be a dedicated InvalidDirection error (discriminant 20),
+    // NOT the binding InvalidProof (discriminant 9, whose meaning is "groth16 verify false").
+    let res = client.try_cast_vote(&id, &v1, &2u32);
+    assert_eq!(res, Err(Ok(GovError::InvalidDirection)));
+    assert_eq!(client.votes_cast(&id), 0);
+}
+

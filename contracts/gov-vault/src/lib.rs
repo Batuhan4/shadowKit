@@ -37,13 +37,18 @@ pub enum GovError {
     DeadlineInPast     = 22, // create_proposal: deadline <= current ledger timestamp
 }
 
-use soroban_sdk::{contractevent, contractimpl, Address, Env, Map};
+use soroban_sdk::{contractevent, contractimpl, Address, BytesN, Env, Map};
+use soroban_sdk::xdr::ToXdr;
 use shadowkit_shared::{ActionSpec, ProposalView, ProposalStatus, QuorumCfg};
 use crate::storage::ProposalRecord;
 
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProposalCreated { #[topic] pub id: u32, pub deadline: u64, pub cap: i128 }
+
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VoteCast { #[topic] pub id: u32, pub nullifier: BytesN<32> } // no direction/weight
 
 #[contractimpl]
 impl GovVault {
@@ -123,5 +128,50 @@ impl GovVault {
     /// Participation count (safe — no direction).
     pub fn votes_cast(env: Env, id: u32) -> u32 {
         storage::get_proposal(&env, id).votes_cast
+    }
+
+    /// PLAINTEXT vote (M1). `voter` must auth; `direction` is 1 (yes) or 0 (no).
+    /// Reads the voter's snapshot weight, prevents double-vote, enforces deadline,
+    /// updates the running plaintext tally (kept private until `close`), bumps participation.
+    /// M4/M5 REPLACE this with the sealed signature (foundation §2.2).
+    /// CARRY-FORWARD: returns Result<(), GovError> (NOT panic_with_error!) so the charter's
+    /// try_cast_vote() == Err(Ok(GovError::X)) negatives hold.
+    pub fn cast_vote(env: Env, id: u32, voter: Address, direction: u32) -> Result<(), GovError> {
+        voter.require_auth();
+        let mut rec = storage::get_proposal(&env, id);
+        // deadline: cast must be at/before deadline
+        if env.ledger().timestamp() > rec.deadline {
+            return Err(GovError::DeadlinePassed);
+        }
+        // direction must be a bit (0 or 1). Use a DEDICATED M1-additive error, NOT the binding
+        // InvalidProof (code 9, whose foundation §2.2 meaning is "groth16 verify returned false").
+        if direction != 0 && direction != 1 {
+            return Err(GovError::InvalidDirection);
+        }
+        // eligibility + weight
+        let weight = storage::get_vote_weights(&env).get(voter.clone()).unwrap_or(0);
+        if weight <= 0 {
+            return Err(GovError::NotEligible);
+        }
+        // double-vote guard (plaintext analogue of nullifier)
+        if storage::has_voted(&env, id, &voter) {
+            return Err(GovError::AlreadyVoted);
+        }
+        storage::mark_voted(&env, id, &voter);
+        if direction == 1 {
+            storage::add_yes(&env, id, weight);
+        } else {
+            storage::add_no(&env, id, weight);
+        }
+        rec.votes_cast += 1;
+        storage::set_proposal(&env, id, &rec);
+        // VoteCast event: foundation §2.2 uses BytesN<32> nullifier; M1 has no nullifier,
+        // so we emit a deterministic voter-derived 32-byte id (sha256 of the voter's XDR bytes) to keep
+        // the binding event shape stable. Recorded divergence.
+        // .to_bytes() is the documented Hash<32> -> BytesN<32> conversion (verified SDK 26.0.1
+        // src/crypto.rs: sha256 -> Hash<32>; Hash::to_bytes -> BytesN<N>).
+        let voter_id: BytesN<32> = env.crypto().sha256(&voter.clone().to_xdr(&env)).to_bytes();
+        VoteCast { id, nullifier: voter_id }.publish(&env);
+        Ok(())
     }
 }

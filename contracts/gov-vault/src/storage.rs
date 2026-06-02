@@ -91,6 +91,27 @@ pub fn get_proposal(env: &Env, id: u32) -> ProposalRecord {
 pub fn try_get_proposal(env: &Env, id: u32) -> Option<ProposalRecord> {
     env.storage().persistent().get(&DataKey::Proposal(id))
 }
+pub fn has_voted(env: &Env, id: u32, voter: &Address) -> bool {
+    env.storage().persistent().has(&DataKey::VoterVoted(id, voter.clone()))
+}
+pub fn mark_voted(env: &Env, id: u32, voter: &Address) {
+    env.storage().persistent().set(&DataKey::VoterVoted(id, voter.clone()), &());
+}
+pub fn add_yes(env: &Env, id: u32, w: i128) {
+    let cur: i128 = env.storage().persistent().get(&DataKey::YesWeight(id)).unwrap_or(0);
+    env.storage().persistent().set(&DataKey::YesWeight(id), &(cur + w));
+}
+pub fn add_no(env: &Env, id: u32, w: i128) {
+    let cur: i128 = env.storage().persistent().get(&DataKey::NoWeight(id)).unwrap_or(0);
+    env.storage().persistent().set(&DataKey::NoWeight(id), &(cur + w));
+}
+pub fn get_yes(env: &Env, id: u32) -> i128 {
+    env.storage().persistent().get(&DataKey::YesWeight(id)).unwrap_or(0)
+}
+pub fn get_no(env: &Env, id: u32) -> i128 {
+    env.storage().persistent().get(&DataKey::NoWeight(id)).unwrap_or(0)
+}
+
 pub fn to_view(id: u32, rec: &ProposalRecord) -> ProposalView {
     ProposalView {
         id,
