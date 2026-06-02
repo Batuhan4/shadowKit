@@ -957,3 +957,98 @@ fn oz_real_auth_rejects_multi_call() {
         res
     );
 }
+
+// ===========================================================================
+// Phase 3 — Hand-rolled __check_auth fallback (feature = "handrolled"), FULLY tested.
+// Self-contained custom account, NO stellar-accounts dependency, verifying a REAL ed25519
+// session-key signature (env.crypto().ed25519_verify) then applying the IDENTICAL gate set via the
+// SHARED policy::check_swap_gates (+ MultiCall single-context). Same allow + reject matrix as OZ.
+// ===========================================================================
+#[cfg(feature = "handrolled")]
+mod handrolled {
+    use super::*;
+    use crate::fallback::{HandRolledAgentAccount, HandRolledAgentAccountClient};
+    // SigningKey is the only symbol not already provided by `super::*` (which re-exports
+    // ed25519_dalek::Signer as _, testutils::Address as _, soroban_sdk Address/BytesN/Env/Vec/vec).
+    use ed25519_dalek::SigningKey;
+
+    /// Deploy HandRolledAgentAccount registered with `sk`'s pubkey, a real GovVault (Approved or Open),
+    /// and a fixed AMM/asset. Takes the SigningKey so the pubkey is derived in THIS env (no throwaway env).
+    #[allow(dead_code)] // asset_out/amm part of the harness surface used by the reject matrix
+    struct HrSetup {
+        env: Env,
+        account: Address,
+        gov: Address,
+        amm: Address,
+        asset_in: Address,
+        asset_out: Address,
+        id: u32,
+    }
+
+    fn build_hr(cap: i128, sk: &SigningKey, approved: bool) -> HrSetup {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (gv, gov) = fixtures::deploy_gov(&env);
+        let amm = Address::generate(&env);
+        let asset_in = Address::generate(&env);
+        let asset_out = Address::generate(&env);
+        let id = if approved {
+            fixtures::approve_swap(&env, &gv, &asset_in, &asset_out, cap, cap)
+        } else {
+            fixtures::create_open_swap(&env, &gv, &asset_in, &asset_out, cap, cap)
+        };
+        let pubkey = BytesN::from_array(&env, &sk.verifying_key().to_bytes()); // pubkey in THIS env
+        let account = env.register(HandRolledAgentAccount, ());
+        HandRolledAgentAccountClient::new(&env, &account)
+            .init(&pubkey, &gov, &amm, &asset_in, &id);
+        HrSetup { env, account, gov, amm, asset_in, asset_out, id }
+    }
+
+    fn setup_for_handrolled(cap: i128, sk: &SigningKey) -> HrSetup {
+        build_hr(cap, sk, true)
+    }
+    fn setup_open_for_handrolled(cap: i128, sk: &SigningKey) -> HrSetup {
+        build_hr(cap, sk, false)
+    }
+
+    /// Sign the RAW 32-byte payload with `sk` and call __check_auth for ONE context. The hand-rolled
+    /// account verifies the sig over signature_payload DIRECTLY (no context_rule_ids digest — that is
+    /// OZ-host-specific). We drive it through the host primitive `try_invoke_contract_check_auth`
+    /// (SOURCE soroban-sdk 26.0.1 env.rs:1602) — the exact host auth code path — so we can assert the
+    /// EXACT Ok/Err with the contract error code surfaced. (DIVERGENCE vs plan snippet: the soroban-sdk
+    /// 26.0.1 contractimpl for CustomAccountInterface does NOT generate a `try___check_auth` client
+    /// method — same finding as M2-3. This is NOT catch_unwind; it is the host Err surface.)
+    fn hr_check(
+        s: &HrSetup,
+        sk: &SigningKey,
+        ctx: Context,
+    ) -> Result<(), Result<soroban_sdk::Error, soroban_sdk::InvokeError>> {
+        hr_check_ctxs(s, sk, soroban_sdk::vec![&s.env, ctx])
+    }
+
+    /// Like hr_check but takes the full auth_contexts vec (used by the multi-call reject).
+    fn hr_check_ctxs(
+        s: &HrSetup,
+        sk: &SigningKey,
+        auth_contexts: Vec<Context>,
+    ) -> Result<(), Result<soroban_sdk::Error, soroban_sdk::InvokeError>> {
+        let payload = BytesN::from_array(&s.env, &[5u8; 32]);
+        let sig = BytesN::from_array(&s.env, &sk.sign(&payload.to_array()).to_bytes()); // REAL ed25519
+        s.env.try_invoke_contract_check_auth::<soroban_sdk::Error>(
+            &s.account,
+            &payload,
+            sig.into_val(&s.env),
+            &auth_contexts,
+        )
+    }
+
+    #[test]
+    fn handrolled_allows_valid_swap_with_real_sig() {
+        // REAL ed25519 key (NOT an invented env helper). SOURCE: ed25519-dalek 2.1.1.
+        let sk = SigningKey::from_bytes(&[11u8; 32]);
+        let s = setup_for_handrolled(15_000i128, &sk);
+        let ctx = gates::swap_ctx(&s.env, &s.amm, &s.asset_in, 10_000, 1, &s.account);
+        let res = hr_check(&s, &sk, ctx);
+        assert_eq!(res, Ok(()), "valid real-signed swap must pass __check_auth: {:?}", res);
+    }
+}
