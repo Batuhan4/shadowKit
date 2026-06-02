@@ -1,0 +1,14 @@
+{
+  "name": "@shadowkit/circuit-vote",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "compile": "echo 'circom compile: implemented in M4' && exit 1",
+    "setup": "echo 'groth16 setup: implemented in M4' && exit 1",
+    "export-vk": "echo 'export-vk: implemented in M4' && exit 1",
+    "gen-witness": "echo 'gen-witness: implemented in M4' && exit 1",
+    "prove": "echo 'prove: implemented in M4' && exit 1",
+    "verify": "echo 'verify: implemented in M4' && exit 1",
+    "test": "echo 'M4 — no circuit tests yet (circuit is milestone M4 / spec §11); deferred no-op' && exit 0"
+  }
+}

@@ -36,3 +36,11 @@ secrets/
 .idea/
 .vscode/
 *.swp
+
+# Keep committed circuit fixtures (M4 puts vote.r1cs / vote_final.zkey / verification_key.json here).
+# The global *.r1cs / *.zkey / *.ptau ignores above would otherwise hide them — re-include this path.
+!circuits/vote/fixtures/
+!circuits/vote/fixtures/*.r1cs
+!circuits/vote/fixtures/*.zkey
+!circuits/vote/fixtures/*.ptau
+!circuits/vote/fixtures/*.json
