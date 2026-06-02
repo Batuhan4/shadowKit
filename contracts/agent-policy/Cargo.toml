@@ -27,3 +27,10 @@ stellar-accounts = { workspace = true }   # host + verifier building blocks for 
 fallback-amm = { path = "../fallback-amm" }
 swap-venue = { path = "../swap-venue" }
 ed25519-dalek = { workspace = true }       # real ed25519 signatures in tests
+# M4: gov-vault's sealed cast_vote requires a real Groth16 proof; the fixtures load the committed
+# circuit proof (same arkworks pattern as gov-vault/groth16-verifier test loaders).
+groth16-verifier = { path = "../groth16-verifier" }
+ark-bls12-381 = "0.4"
+ark-serialize = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

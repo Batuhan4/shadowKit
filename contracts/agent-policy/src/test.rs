@@ -5,21 +5,101 @@ use gov_vault::{GovVault, GovVaultClient};
 use shadowkit_shared::{ActionSpec, QuorumCfg, SwapKind};
 use soroban_sdk::{
     testutils::{Address as _, Ledger, LedgerInfo},
-    Address, Env, Map,
+    Address, Env,
 };
 // OZ types reused across the V1c probe (re-pathed via crate::test::* in the probe helpers).
 pub use stellar_accounts::smart_account::{AuthPayload, Signer};
 
-// ---- fixtures: minimal happy-path GovVault helpers adapted to the REAL M1 gov-vault API ----
-// DIVERGENCE FROM PLAN: the plan's fixtures assumed init(admin, verifier, root, asset, quorum) and
-// close_and_reveal. The REAL M1 API (contracts/gov-vault/src/{lib,test}.rs, §foundation §2.2) is:
-//   init(admin, usdc_asset, &QuorumCfg, &Map<Address,i128> weights)
+// ---- fixtures: GovVault helpers adapted to the M4 SEALED gov-vault API (foundation §2.2) ----
+// M4 migrated gov-vault to:
+//   init(admin, verifier, merkle_root, treasury_asset, &QuorumCfg)
 //   create_proposal(&ActionSpec, &cap, &deadline) -> u32
-//   cast_vote(&id, &voter, &direction)     (direction 1 = yes, 0 = no)
-//   close(&id)                              (after deadline; no separate reveal in M1 plaintext)
-// We mirror M1's test.rs `vote_scenario` exactly (3 yes votes, advance past deadline, close).
+//   cast_vote(&id, &proof, &pub_signals, &sealed_ciphertext)   (sealed; on-chain groth16 verify)
+//   close(&id)                                                  (after deadline; M5 adds reveal)
+// To drive a proposal to Approved we cast the COMMITTED circuit proof (proposalId 0) under a LENIENT
+// quorum (min_voters:1, yes_must_exceed_no:false) so a single sealed vote reaches quorum. M4 sealed
+// votes do not feed the plaintext tally, so weighted_yes/no are 0 and approval is participation-driven.
 pub mod fixtures {
     use super::*;
+    extern crate std;
+    use std::{string::String, vec::Vec as StdVec};
+    use ark_bls12_381::{Fq, Fq2};
+    use ark_serialize::CanonicalSerialize;
+    use core::str::FromStr;
+    use serde::Deserialize;
+    use soroban_sdk::{crypto::bls12_381::{Fr, G1Affine, G2Affine, G1_SERIALIZED_SIZE, G2_SERIALIZED_SIZE}, Bytes, BytesN, U256, Vec};
+    use shadowkit_shared::SealedVote;
+    use groth16_verifier::{Groth16Verifier, Proof};
+
+    #[derive(Deserialize)]
+    struct ProofJson { pi_a: [String; 3], pi_b: [[String; 2]; 3], pi_c: [String; 3] }
+
+    const PROOF: &str = include_str!("../../../circuits/vote/fixtures/proof.json");
+    const PUBLIC: &str = include_str!("../../../circuits/vote/fixtures/public.json");
+
+    fn g1(e: &Env, x: &str, y: &str) -> G1Affine {
+        let p = ark_bls12_381::G1Affine::new(Fq::from_str(x).unwrap(), Fq::from_str(y).unwrap());
+        let mut b = [0u8; G1_SERIALIZED_SIZE];
+        p.serialize_uncompressed(&mut b[..]).unwrap();
+        G1Affine::from_array(e, &b)
+    }
+    fn g2(e: &Env, x1: &str, x2: &str, y1: &str, y2: &str) -> G2Affine {
+        let x = Fq2::new(Fq::from_str(x1).unwrap(), Fq::from_str(x2).unwrap());
+        let y = Fq2::new(Fq::from_str(y1).unwrap(), Fq::from_str(y2).unwrap());
+        let p = ark_bls12_381::G2Affine::new(x, y);
+        let mut b = [0u8; G2_SERIALIZED_SIZE];
+        p.serialize_uncompressed(&mut b[..]).unwrap();
+        G2Affine::from_array(e, &b)
+    }
+    fn be32(dec: &str) -> [u8; 32] {
+        let mut a = [0u8; 32];
+        for ch in dec.bytes() {
+            let d = (ch - b'0') as u16;
+            let mut c = d;
+            for i in (0..32).rev() {
+                let v = a[i] as u16 * 10 + c;
+                a[i] = (v & 0xff) as u8;
+                c = v >> 8;
+            }
+        }
+        a
+    }
+    fn fr(e: &Env, dec: &str) -> Fr {
+        Fr::from_u256(U256::from_be_bytes(e, &Bytes::from_array(e, &be32(dec))))
+    }
+    fn committed_proof(e: &Env) -> Proof {
+        let p: ProofJson = serde_json::from_str(PROOF).unwrap();
+        Proof {
+            a: g1(e, &p.pi_a[0], &p.pi_a[1]),
+            b: g2(e, &p.pi_b[0][0], &p.pi_b[0][1], &p.pi_b[1][0], &p.pi_b[1][1]),
+            c: g1(e, &p.pi_c[0], &p.pi_c[1]),
+        }
+    }
+    // public.json native order [nullifier, merkleRoot, proposalId, sealedCommit] -> BINDING order.
+    fn committed_public_signals(e: &Env) -> Vec<Fr> {
+        let arr: StdVec<String> = serde_json::from_str(PUBLIC).unwrap();
+        let mut v = Vec::new(e);
+        v.push_back(fr(e, &arr[1])); // merkleRoot
+        v.push_back(fr(e, &arr[0])); // nullifier
+        v.push_back(fr(e, &arr[2])); // proposalId
+        v.push_back(fr(e, &arr[3])); // sealedCommitmentHash
+        v
+    }
+    fn merkle_root_be32(e: &Env) -> BytesN<32> {
+        let arr: StdVec<String> = serde_json::from_str(PUBLIC).unwrap();
+        BytesN::from_array(e, &be32(&arr[1]))
+    }
+    fn sealed_commit_be32(e: &Env) -> BytesN<32> {
+        let arr: StdVec<String> = serde_json::from_str(PUBLIC).unwrap();
+        BytesN::from_array(e, &be32(&arr[3]))
+    }
+    fn committed_sealed(e: &Env) -> SealedVote {
+        SealedVote {
+            round: 0,
+            ciphertext: Bytes::from_array(e, b"sealed-blob"),
+            sealed_commitment_hash: sealed_commit_be32(e),
+        }
+    }
 
     fn set_time(env: &Env, ts: u64) {
         env.ledger().set(LedgerInfo {
@@ -34,17 +114,27 @@ pub mod fixtures {
         });
     }
 
-    /// Deploy a GovVault. Returns (client, gov_id). The treasury asset is provided per proposal
-    /// via the ActionSpec; init takes a single `usdc` stand-in asset address (unused by the probe).
+    /// Deploy a GovVault. Returns (client, gov_id).
     pub fn deploy_gov(env: &Env) -> (GovVaultClient<'static>, Address) {
         let gv_id = env.register(GovVault, ());
         let gv = GovVaultClient::new(env, &gv_id);
         (gv, gv_id)
     }
 
-    /// Create a swap proposal (asset_in -> asset_out, amount, cap) and drive it to Approved using
-    /// M1's PLAINTEXT 3-yes-votes-then-close sequence. Returns the Approved proposal id.
-    /// `gv` must be freshly deployed (init is called here with 3 eligible voters).
+    /// init `gv` with a deployed Groth16Verifier + the committed snapshot root + the given quorum.
+    fn init_gov(env: &Env, gv: &GovVaultClient, quorum: QuorumCfg) {
+        let admin = Address::generate(env);
+        let usdc = Address::generate(env);
+        let verifier_id = env.register(Groth16Verifier {}, ());
+        env.mock_all_auths();
+        gv.init(&admin, &verifier_id, &merkle_root_be32(env), &usdc, &quorum);
+        let executor = Address::generate(env);
+        gv.set_executor(&executor);
+    }
+
+    /// Create a swap proposal (asset_in -> asset_out, amount, cap) and drive it to Approved by
+    /// casting the COMMITTED sealed vote (proposalId 0) under a LENIENT quorum, then closing.
+    /// Returns the Approved proposal id (always 0 for a freshly deployed gv).
     pub fn approve_swap(
         env: &Env,
         gv: &GovVaultClient,
@@ -53,25 +143,7 @@ pub mod fixtures {
         amount: i128,
         cap: i128,
     ) -> u32 {
-        let admin = Address::generate(env);
-        let usdc = Address::generate(env); // init's asset slot (proposal carries its own assets)
-        let v1 = Address::generate(env);
-        let v2 = Address::generate(env);
-        let v3 = Address::generate(env);
-        let mut w: Map<Address, i128> = Map::new(env);
-        w.set(v1.clone(), 10);
-        w.set(v2.clone(), 10);
-        w.set(v3.clone(), 10);
-        let cfg = QuorumCfg { min_voters: 3, yes_must_exceed_no: true };
-        env.mock_all_auths();
-        gv.init(&admin, &usdc, &cfg, &w);
-        // Task M2-0c: configure an executor so `mark_executed`'s `get_executor().require_auth()`
-        // gate resolves (mock_all_auths satisfies the executor signer). The reject_already_executed
-        // gate test marks the proposal Executed via this path; without an executor set, mark_executed
-        // panics NotInitialized reading DataKey::Executor (gov-vault storage.rs:get_executor).
-        let executor = Address::generate(env);
-        gv.set_executor(&executor);
-
+        init_gov(env, gv, QuorumCfg { min_voters: 1, yes_must_exceed_no: false });
         set_time(env, 1_000);
         let spec = ActionSpec {
             kind: SwapKind::Swap,
@@ -82,10 +154,8 @@ pub mod fixtures {
         };
         let deadline: u64 = 2_000;
         let id = gv.create_proposal(&spec, &cap, &deadline);
-        // 3 yes votes -> votes_cast(3) >= min_voters(3) AND yes>no -> Approved on close
-        gv.cast_vote(&id, &v1, &1u32);
-        gv.cast_vote(&id, &v2, &1u32);
-        gv.cast_vote(&id, &v3, &1u32);
+        // single committed sealed vote (proposalId 0) -> participation 1 >= min_voters 1 -> Approved.
+        gv.cast_vote(&id, &committed_proof(env), &committed_public_signals(env), &committed_sealed(env));
         set_time(env, 2_001); // advance past deadline
         gv.close(&id);
         id
@@ -101,21 +171,7 @@ pub mod fixtures {
         amount: i128,
         cap: i128,
     ) -> u32 {
-        let admin = Address::generate(env);
-        let usdc = Address::generate(env);
-        let v1 = Address::generate(env);
-        let v2 = Address::generate(env);
-        let v3 = Address::generate(env);
-        let mut w: Map<Address, i128> = Map::new(env);
-        w.set(v1.clone(), 10);
-        w.set(v2.clone(), 10);
-        w.set(v3.clone(), 10);
-        let cfg = QuorumCfg { min_voters: 3, yes_must_exceed_no: true };
-        env.mock_all_auths();
-        gv.init(&admin, &usdc, &cfg, &w);
-        let executor = Address::generate(env);
-        gv.set_executor(&executor);
-
+        init_gov(env, gv, QuorumCfg { min_voters: 3, yes_must_exceed_no: true });
         set_time(env, 1_000);
         let spec = ActionSpec {
             kind: SwapKind::Swap,
