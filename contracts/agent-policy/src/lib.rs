@@ -11,6 +11,8 @@ use soroban_sdk::{contract, contractimpl, Address, Env};
 
 #[cfg(test)]
 mod test;
+#[cfg(test)]
+mod test_account;
 
 #[contract]
 pub struct AgentPolicy;

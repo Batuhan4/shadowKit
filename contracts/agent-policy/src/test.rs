@@ -7,6 +7,8 @@ use soroban_sdk::{
     testutils::{Address as _, Ledger, LedgerInfo},
     Address, Env, Map,
 };
+// OZ types reused across the V1c probe (re-pathed via crate::test::* in the probe helpers).
+pub use stellar_accounts::smart_account::{AuthPayload, Signer};
 
 // ---- fixtures: minimal happy-path GovVault helpers adapted to the REAL M1 gov-vault API ----
 // DIVERGENCE FROM PLAN: the plan's fixtures assumed init(admin, verifier, root, asset, quorum) and
@@ -82,6 +84,259 @@ pub mod fixtures {
         gv.close(&id);
         id
     }
+}
+
+// ===========================================================================
+// Task M2-V1c — the BINDING §13.4 probe: cross-read INSIDE `enforce` DURING AUTH.
+// ===========================================================================
+use crate::test_account::{TestEd25519Verifier, TestSmartAccount};
+use ed25519_dalek::{Signer as _, SigningKey};
+use soroban_sdk::{
+    auth::{Context, ContractContext},
+    contract, contractimpl, symbol_short,
+    xdr::ToXdr,
+    Bytes, BytesN, IntoVal, Symbol, Val, Vec,
+};
+use stellar_accounts::policies::Policy;
+use stellar_accounts::smart_account::ContextRule;
+
+// Throwaway policy: enforce() performs ONE cross-read of GovVault and GATES on the result.
+// The cross-read runs DURING the host's __check_auth -> do_check_auth -> enforce. SOURCE: §13.4.
+// SOURCE for the trait-impl shape: examples/multisig-smart-account/spending-limit-policy/src/contract.rs.
+//
+// Gating on the read value (panic when NOT approved) is deliberate: it proves the cross-read REALLY
+// executed during auth and its result flows into the auth decision (no false green from a skipped
+// read). enforce panics with a recognizable message if GovVault.is_approved(read_id) == false.
+#[contract]
+pub struct CrossReadProbePolicy;
+#[contractimpl]
+impl Policy for CrossReadProbePolicy {
+    type AccountParams = Address; // the GovVault address
+
+    fn enforce(
+        e: &Env,
+        _context: Context,
+        _signers: Vec<Signer>,
+        _rule: ContextRule,
+        smart_account: Address,
+    ) {
+        smart_account.require_auth(); // OZ policy convention
+        let gov: Address = e
+            .storage()
+            .persistent()
+            .get(&(symbol_short!("gov"), smart_account.clone()))
+            .unwrap();
+        let read_id: u32 = e
+            .storage()
+            .persistent()
+            .get(&symbol_short!("readid"))
+            .unwrap_or(0u32);
+        // THE §13.4 CROSS-READ DURING AUTH (live read of GovVault from inside enforce):
+        let approved = gov_vault::GovVaultClient::new(e, &gov).is_approved(&read_id);
+        // Gate on the live read so the verdict cannot be a false green from a skipped/ignored read.
+        if !approved {
+            panic!("CROSS_READ_GATE: GovVault.is_approved(read_id) was false during auth");
+        }
+    }
+
+    fn install(e: &Env, gov: Address, _rule: ContextRule, smart_account: Address) {
+        e.storage()
+            .persistent()
+            .set(&(symbol_short!("gov"), smart_account), &gov);
+    }
+
+    fn uninstall(_e: &Env, _rule: ContextRule, _sa: Address) {}
+}
+
+/// Build a signed AuthPayload for ONE context. The signed digest is
+/// sha256(signature_payload.to_bytes() || context_rule_ids.to_xdr()) per do_check_auth
+/// (stellar-accounts smart_account/storage.rs:493-495, verified 2026-06-02).
+/// If `corrupt_sig` is true, the last signature byte is flipped so the ed25519 verify FAILS
+/// (negative control proving the host's auth path is real, not bypassed).
+fn sign_auth_payload(
+    env: &Env,
+    verifier: &Address,
+    sk: &SigningKey,
+    pubkey: &BytesN<32>,
+    signature_payload: &BytesN<32>,
+    rule_id: u32,
+    corrupt_sig: bool,
+) -> crate::test::AuthPayload {
+    let context_rule_ids: Vec<u32> = soroban_sdk::vec![env, rule_id];
+    // digest = sha256(signature_payload.bytes ++ context_rule_ids.to_xdr())
+    let mut preimage = Bytes::from_array(env, &signature_payload.to_array());
+    preimage.append(&context_rule_ids.clone().to_xdr(env));
+    let digest = env.crypto().sha256(&preimage); // Hash<32>
+    let digest_bytes = digest.to_bytes().to_array(); // [u8;32]
+    let mut sig: [u8; 64] = sk.sign(&digest_bytes).to_bytes(); // REAL ed25519 over the digest
+    if corrupt_sig {
+        sig[63] ^= 0x01; // flip one bit -> a genuinely invalid ed25519 signature
+    }
+    let signer = Signer::External(
+        verifier.clone(),
+        Bytes::from_array(env, &pubkey.to_array()),
+    );
+    let mut signers: soroban_sdk::Map<Signer, Bytes> = soroban_sdk::Map::new(env);
+    signers.set(signer, Bytes::from_array(env, &sig));
+    crate::test::AuthPayload {
+        signers,
+        context_rule_ids,
+    }
+}
+
+/// Result of driving a real host auth probe.
+struct ProbeOutcome {
+    ok: bool,
+    /// True iff the failure looks like a cross-read/cross-contract rejection rather than a plain
+    /// auth/gate failure (used to distinguish the two §13.4 verdict branches).
+    err_dbg: std::string::String,
+}
+
+/// Drive a REAL host auth: invoke `TestSmartAccount.__check_auth` (via the host's
+/// `call_account_contract_check_auth`) with a REAL ed25519-signed AuthPayload and ONE
+/// ContractContext, so `do_check_auth` runs `CrossReadProbePolicy::enforce` (the §13.4 cross-read)
+/// DURING authorization. Returns whether the host accepts (i.e. the cross-read was permitted).
+/// SOURCE: soroban-sdk 26.0.1 env.rs:1602 `try_invoke_contract_check_auth`.
+fn drive_host_auth(
+    env: &Env,
+    host: &Address,
+    target: &Address,
+    sk: &SigningKey,
+    pubkey: &BytesN<32>,
+    verifier: &Address,
+    rule_id: u32,
+    corrupt_sig: bool,
+) -> ProbeOutcome {
+    // The context being authorized: a contract call on `target` (fn name irrelevant for the probe).
+    let ctx = Context::Contract(ContractContext {
+        contract: target.clone(),
+        fn_name: Symbol::new(env, "swap"),
+        args: soroban_sdk::vec![env],
+    });
+    let auth_contexts: Vec<Context> = soroban_sdk::vec![env, ctx];
+
+    // Choose any 32-byte signature payload (the host hashes it into the auth digest we sign).
+    let signature_payload = BytesN::from_array(env, &[3u8; 32]);
+    let payload = sign_auth_payload(env, verifier, sk, pubkey, &signature_payload, rule_id, corrupt_sig);
+
+    let res = env.try_invoke_contract_check_auth::<soroban_sdk::InvokeError>(
+        host,
+        &signature_payload,
+        payload.into_val(env),
+        &auth_contexts,
+    );
+    ProbeOutcome {
+        ok: res.is_ok(),
+        err_dbg: std::format!("{:?}", res),
+    }
+}
+
+/// Build the host with `CrossReadProbePolicy` installed and the probe `read_id` set in policy storage.
+/// Returns (host, target, sk, pubkey, verifier).
+fn build_probe_host(
+    env: &Env,
+    gv_id: &Address,
+    read_id: u32,
+) -> (Address, Address, SigningKey, BytesN<32>, Address) {
+    let sk = SigningKey::from_bytes(&[7u8; 32]);
+    let pubkey = BytesN::from_array(env, &sk.verifying_key().to_bytes());
+    let verifier = env.register(TestEd25519Verifier, ());
+
+    let policy_id = env.register(CrossReadProbePolicy, ());
+    let signers: Vec<Signer> = soroban_sdk::vec![
+        env,
+        Signer::External(verifier.clone(), Bytes::from_array(env, &pubkey.to_array()))
+    ];
+    let mut policies: soroban_sdk::Map<Address, Val> = soroban_sdk::Map::new(env);
+    policies.set(policy_id.clone(), gv_id.clone().into_val(env)); // install_params = GovVault addr
+    let host = env.register(TestSmartAccount, (signers, policies));
+
+    // Tell the probe policy WHICH proposal id to live-read during enforce.
+    env.as_contract(&policy_id, || {
+        env.storage()
+            .persistent()
+            .set(&symbol_short!("readid"), &read_id);
+    });
+
+    let target = Address::generate(env);
+    (host, target, sk, pubkey, verifier)
+}
+
+// THE BINDING §13.4 PROBE: a cross-contract READ of GovVault performed INSIDE the OZ
+// `Policy::enforce` DURING a real host `__check_auth` flow succeeds. The probe policy GATES on
+// the live read (panics if not approved), so a pass means the read genuinely executed and its
+// result drove the auth decision.
+#[test]
+fn cross_read_in_enforce_during_auth() {
+    let env = Env::default();
+    // GovVault admin/governance auth is mocked; the host __check_auth (and its ed25519 verify) is REAL.
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let (gv, gv_id) = fixtures::deploy_gov(&env);
+    let asset_in = Address::generate(&env);
+    let asset_out = Address::generate(&env);
+    // proposal id 0 approved (the probe policy live-reads is_approved(&0))
+    let id = fixtures::approve_swap(&env, &gv, &asset_in, &asset_out, 1_000, 1_000);
+    assert_eq!(id, 0, "probe reads is_approved(read_id=0); fixture must produce id 0");
+    assert_eq!(gv.is_approved(&0u32), true, "id 0 must be Approved before the probe");
+
+    let (host, target, sk, pubkey, verifier) = build_probe_host(&env, &gv_id, 0u32);
+
+    let outcome = drive_host_auth(&env, &host, &target, &sk, &pubkey, &verifier, 0u32, false);
+
+    // VERDICT: Ok(()) => DIRECT cross-read in enforce during auth WORKS (OZ policy is primary).
+    // Err => cross-read rejected during auth => hand-rolled __check_auth becomes the live host of record.
+    assert!(
+        outcome.ok,
+        "BINDING §13.4 VERDICT would flip to NO. Host rejected auth: {}",
+        outcome.err_dbg
+    );
+}
+
+// NEGATIVE CONTROL A — proves the GREEN above is NOT a false green from a skipped read:
+// when the probe policy live-reads an UNAPPROVED id during enforce, the gate panics and the
+// host auth FAILS. If the cross-read were skipped/ignored, this would (wrongly) still pass.
+#[test]
+fn cross_read_gate_rejects_when_read_id_unapproved() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let (gv, gv_id) = fixtures::deploy_gov(&env);
+    let asset_in = Address::generate(&env);
+    let asset_out = Address::generate(&env);
+    let _id = fixtures::approve_swap(&env, &gv, &asset_in, &asset_out, 1_000, 1_000); // id 0 approved
+    assert_eq!(gv.is_approved(&5u32), false, "id 5 does not exist -> not approved");
+
+    // Point the probe at id 5 (NOT approved) -> the live cross-read returns false -> gate panics.
+    let (host, target, sk, pubkey, verifier) = build_probe_host(&env, &gv_id, 5u32);
+    let outcome = drive_host_auth(&env, &host, &target, &sk, &pubkey, &verifier, 0u32, false);
+
+    assert!(
+        !outcome.ok,
+        "the live cross-read of an UNAPPROVED id must fail auth (proves the read really ran)"
+    );
+}
+
+// NEGATIVE CONTROL B — proves the host's auth path is REAL (ed25519 actually verified), not
+// bypassed by mock_all_auths_allowing_non_root_auth: a corrupted session signature FAILS auth.
+#[test]
+fn host_auth_rejects_bad_session_signature() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let (gv, gv_id) = fixtures::deploy_gov(&env);
+    let asset_in = Address::generate(&env);
+    let asset_out = Address::generate(&env);
+    let _id = fixtures::approve_swap(&env, &gv, &asset_in, &asset_out, 1_000, 1_000); // id 0 approved
+
+    let (host, target, sk, pubkey, verifier) = build_probe_host(&env, &gv_id, 0u32);
+    // corrupt_sig = true -> a genuinely invalid ed25519 signature.
+    let outcome = drive_host_auth(&env, &host, &target, &sk, &pubkey, &verifier, 0u32, true);
+
+    assert!(
+        !outcome.ok,
+        "a corrupted ed25519 session signature must fail host auth (proves auth is real)"
+    );
 }
 
 // §13.4 EASY-CASE PROBE: a NORMAL entrypoint cross-read of GovVault returns its real state.
