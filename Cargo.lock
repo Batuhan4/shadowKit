@@ -651,6 +651,7 @@ name = "fallback-amm"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
+ "swap-venue",
 ]
 
 [[package]]
