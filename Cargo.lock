@@ -733,6 +733,7 @@ dependencies = [
 name = "gov-vault"
 version = "0.1.0"
 dependencies = [
+ "shadowkit-shared",
  "soroban-sdk",
 ]
 
