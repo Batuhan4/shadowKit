@@ -35,16 +35,28 @@ strip_noise() { grep -vE "local config|config migrate" || true; }
 invoke_read() { stellar contract invoke "$@" 2>/dev/null | strip_noise | tail -1 | tr -d '"'; }
 
 # ---- 0) deploy (idempotent) + load ids ----
+# SKIP_DEPLOY=1 reuses the EXISTING .env.demo.<network> deployment (no redeploy) — used to provision
+# demo state (fresh proposals) against the already-deployed, site-wired contracts without changing ids.
+# STOP_AFTER=approve|fund|execute (default execute) lets a provisioning run stop early (e.g. leave an
+# Approved+funded proposal for the AgentBoard demo to execute live).
 ENV_FILE=".env.demo.${NETWORK}"
-echo "==> [0/8] deploy the full sealed system (network=${NETWORK})"
-if [ "${NETWORK}" = "local" ]; then
-  just net-up >/dev/null 2>&1 || { echo "[demo] net-up failed"; exit 1; }
+SKIP_DEPLOY="${SKIP_DEPLOY:-0}"
+STOP_AFTER="${STOP_AFTER:-execute}"
+if [ "${SKIP_DEPLOY}" = "1" ]; then
+  echo "==> [0/8] SKIP_DEPLOY=1 — reusing existing ${ENV_FILE} (no redeploy)"
+  test -f "${ENV_FILE}" || { echo "[demo] SKIP_DEPLOY=1 but ${ENV_FILE} missing"; exit 1; }
+  set -a; . "./${ENV_FILE}"; set +a
+else
+  echo "==> [0/8] deploy the full sealed system (network=${NETWORK})"
+  if [ "${NETWORK}" = "local" ]; then
+    just net-up >/dev/null 2>&1 || { echo "[demo] net-up failed"; exit 1; }
+  fi
+  bash scripts/deploy-demo.sh --network "${NETWORK}" > /tmp/shadowkit-demo-deploy.log 2>&1 || {
+    echo "[demo] deploy failed; tail:"; tail -25 /tmp/shadowkit-demo-deploy.log; exit 1;
+  }
+  test -f "${ENV_FILE}" || { echo "[demo] ${ENV_FILE} not produced by deploy"; exit 1; }
+  set -a; . "./${ENV_FILE}"; set +a
 fi
-bash scripts/deploy-demo.sh --network "${NETWORK}" > /tmp/shadowkit-demo-deploy.log 2>&1 || {
-  echo "[demo] deploy failed; tail:"; tail -25 /tmp/shadowkit-demo-deploy.log; exit 1;
-}
-test -f "${ENV_FILE}" || { echo "[demo] ${ENV_FILE} not produced by deploy"; exit 1; }
-set -a; . "./${ENV_FILE}"; set +a
 
 DEPLOYER="${STELLAR_DEPLOYER:-shadowkit-deployer}"
 NET="${NETWORK}"
@@ -146,6 +158,12 @@ APPROVED="$(invoke_read --id "${GOV_VAULT_ID}" --source-account "${DEPLOYER}" --
 echo "    is_approved(${PROPOSAL_ID}) = ${APPROVED}"
 [ "${APPROVED}" = "true" ] || { echo "[demo] FAIL: proposal not Approved after sealed reveal (yes=${YES_W} no=${NO_W})"; exit 1; }
 
+if [ "${STOP_AFTER}" = "approve" ]; then
+  echo "==> STOP_AFTER=approve — proposal ${PROPOSAL_ID} is APPROVED (yes=${YES_W} no=${NO_W}); not funding/executing."
+  echo "DEMO_PROPOSAL_ID=${PROPOSAL_ID}"
+  exit 0
+fi
+
 # ---- 6) fund the treasury with 10_000 USDC, snapshot balances ----
 echo "==> [6/8] funding treasury with 10_000 USDC..."
 stellar contract invoke --id "${USDC_ID}" --source-account "${DEPLOYER}" --network "${NET}" \
@@ -154,6 +172,12 @@ stellar contract invoke --id "${USDC_ID}" --source-account "${DEPLOYER}" --netwo
 USDC_BEFORE="$(invoke_read --id "${USDC_ID}" --source-account "${DEPLOYER}" --network "${NET}" -- balance --id "${TREASURY_ADDR}")"
 WXLM_BEFORE="$(invoke_read --id "${WXLM_SAC}" --source-account "${DEPLOYER}" --network "${NET}" -- balance --id "${TREASURY_ADDR}")"
 echo "    treasury BEFORE: USDC=${USDC_BEFORE}  WXLM=${WXLM_BEFORE}"
+
+if [ "${STOP_AFTER}" = "fund" ]; then
+  echo "==> STOP_AFTER=fund — proposal ${PROPOSAL_ID} APPROVED + treasury funded (USDC=${USDC_BEFORE}); ready for the AgentBoard demo to execute live."
+  echo "DEMO_PROPOSAL_ID=${PROPOSAL_ID}"
+  exit 0
+fi
 
 # ---- 7) run the REAL agent middleware (watch Approved -> plan -> sign -> on-chain swap -> mark_executed) ----
 echo "==> [7/8] running the REAL agent (DeterministicPlanner -> Executor -> on-chain FallbackAMM.swap)..."
