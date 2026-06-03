@@ -3,27 +3,24 @@ import { CONFIG, explorerContract, short } from "../lib/config.ts";
 const contracts = [
   { label: "GovVault", id: CONFIG.govVaultId },
   { label: "Verifier", id: CONFIG.verifierId },
-  { label: "USDC", id: CONFIG.usdcId },
-  { label: "AMM", id: CONFIG.ammId },
+  { label: "AgentPolicy", id: CONFIG.agentPolicyId },
 ];
-const year = 2026;
 ---
 <footer class="ft">
-  <div class="container ft-inner">
-    <div class="ft-brand">
-      <div class="tag">Vote in the shadows. <span class="gradient-text">Execute in the light.</span></div>
-      <p class="muted">ZK + AI governance infrastructure on Stellar / Soroban. Built for Build On Stellar — IBW 2026.</p>
-      <span class="badge badge-green">● Live on Stellar testnet</span>
+  <div class="wrap ft-row">
+    <div>
+      <div class="ft-mark">Shadow<span class="mk-b">Kit</span></div>
+      <p class="ft-tag muted">Vote in the shadows. Execute in the light.</p>
+      <span class="tag tag-ok dot">Live on Stellar testnet</span>
     </div>
-    <div class="ft-col">
-      <h4>Explore</h4>
-      <a href="/demo/fund">ShadowFund — private voting</a>
-      <a href="/demo/agent">AgentBoard — AI execution</a>
-      <a href="/docs">SDK docs</a>
+    <nav class="ft-links" aria-label="Footer">
+      <a href="/demo/fund">ShadowFund</a>
+      <a href="/demo/agent">AgentBoard</a>
+      <a href="/docs">Docs</a>
       <a href="https://github.com/Batuhan4/shadowKit" target="_blank" rel="noopener">GitHub</a>
-    </div>
-    <div class="ft-col">
-      <h4>Testnet contracts</h4>
+    </nav>
+    <div class="ft-contracts">
+      <div class="ft-h">Contracts</div>
       {contracts.map((c) => (
         <a class="mono" href={explorerContract(c.id)} target="_blank" rel="noopener">{c.label} · {short(c.id)}</a>
       ))}
@@ -32,13 +29,16 @@ const year = 2026;
 </footer>
 
 <style>
-  .ft { border-top: 1px solid var(--line); margin-top: 6rem; padding: 3rem 0 4rem; background: rgba(0,0,0,0.2); }
-  .ft-inner { display: grid; grid-template-columns: 1.6fr 1fr 1fr; gap: 2.5rem; }
-  .tag { font-family: var(--font-display); font-weight: 600; font-size: 1.15rem; margin-bottom: 0.5rem; }
-  .muted { color: var(--mist); font-size: 0.92rem; max-width: 34ch; }
-  .ft-col h4 { font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--mist-2); margin-bottom: 0.9rem; }
-  .ft-col a { display: block; color: var(--mist); font-size: 0.9rem; padding: 0.22rem 0; }
-  .ft-col a:hover { color: var(--ink); }
-  .ft-col a.mono { font-size: 0.8rem; }
-  @media (max-width: 760px) { .ft-inner { grid-template-columns: 1fr; gap: 1.8rem; } }
+  .ft { border-top: 1px solid var(--line); margin-top: clamp(4rem, 8vw, 8rem); padding-block: clamp(2.5rem, 5vw, 4rem); background: var(--bg-2); }
+  .ft-row { display: grid; grid-template-columns: 1.6fr 1fr 1fr; gap: clamp(1.5rem, 4vw, 3rem); align-items: start; }
+  .ft-mark { font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; color: var(--text); }
+  .mk-b { color: var(--lime); }
+  .ft-tag { margin: 0.4rem 0 0.8rem; font-size: 0.92rem; }
+  .ft-h { font-family: var(--font-mono); font-size: 0.66rem; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); margin-bottom: 0.8rem; }
+  .ft-links { display: flex; flex-direction: column; gap: 0.5rem; }
+  .ft-links a { color: var(--text-2); font-family: var(--font-mono); font-size: 0.85rem; }
+  .ft-links a:hover { color: var(--lime); }
+  .ft-contracts { display: flex; flex-direction: column; gap: 0.5rem; }
+  .ft-contracts a { color: var(--muted); font-size: 0.78rem; }
+  @media (max-width: 680px) { .ft-row { grid-template-columns: 1fr; gap: 1.8rem; } }
 </style>

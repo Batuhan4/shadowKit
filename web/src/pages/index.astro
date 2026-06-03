@@ -1,30 +1,138 @@
 ---
-// ShadowKit landing — the front door. Cinematic, Astro-first, minimal JS. Sections are split into
-// brand-consistent components under components/landing/, all driven by the testable landing-data model.
 import Layout from "../layouts/Layout.astro";
-import Hero from "../components/landing/Hero.astro";
-import StoryFlow from "../components/landing/StoryFlow.astro";
-import DemoCards from "../components/landing/DemoCards.astro";
-import HowItWorks from "../components/landing/HowItWorks.astro";
-import Tracks from "../components/landing/Tracks.astro";
-import LiveStrip from "../components/landing/LiveStrip.astro";
-import FinalCta from "../components/landing/FinalCta.astro";
+import { CONFIG, explorerContract, short } from "../lib/config.ts";
 
-const title = "ShadowKit — Vote in the shadows. Execute in the light.";
-const description =
-  "ZK + AI-agent governance infrastructure on Stellar / Soroban. Members vote privately with zero-knowledge proofs, the tally stays sealed behind a timelock until close, then an LLM-bounded agent executes the approved action on-chain — live on testnet.";
+// the anonymity set: a field of identical marks, a few lit, one "you" — position arbitrary.
+const TOTAL = 112;
+const lit = new Set([4, 11, 23, 30, 47, 58, 66, 79, 88, 95, 103]);
+const you = 52;
+
+const steps = [
+  { k: "SEAL", t: "A sealed vote", d: "A zero-knowledge proof casts your weighted vote — identity, weight and direction never revealed." },
+  { k: "HOLD", t: "A timelocked tally", d: "Every ballot is encrypted to a future drand round. The count is unreadable until close — no whale can watch." },
+  { k: "REVEAL", t: "Open & execute", d: "At the deadline the seal breaks, the tally is revealed on-chain, and a bounded agent carries out the result." },
+];
+const contracts = [
+  { label: "GovVault", id: CONFIG.govVaultId },
+  { label: "Groth16 Verifier", id: CONFIG.verifierId },
+  { label: "AgentPolicy", id: CONFIG.agentPolicyId },
+];
 ---
-<Layout title={title} description={description}>
-  <Hero />
-  <hr class="divider container-divider" />
-  <StoryFlow />
-  <DemoCards />
-  <HowItWorks />
-  <Tracks />
-  <LiveStrip />
-  <FinalCta />
+<Layout>
+  <!-- HERO -->
+  <section class="hero wrap">
+    <div class="hero-grid">
+      <div class="hero-copy">
+        <p class="eyebrow rise">Private DAO governance · Stellar</p>
+        <h1 class="rise">Vote in the shadows.<br />Execute in the <span class="lit">light</span>.</h1>
+        <p class="lede hero-lede rise">
+          Every ballot is one of thousands of identical marks — none traceable to a voter. The tally
+          stays sealed until close, then a bounded agent executes the result on-chain.
+        </p>
+        <div class="hero-cta rise">
+          <a class="btn btn-primary" href="/demo/fund">Try ShadowFund</a>
+          <a class="btn btn-ghost" href="/demo/agent">Watch the agent</a>
+        </div>
+        <p class="hero-foot mono rise"><span class="dotlive"></span> Live on Stellar testnet</p>
+      </div>
+
+      <figure class="hero-aset rise">
+        <div class="aset" style="--cols:14" aria-hidden="true">
+          {Array.from({ length: TOTAL }).map((_, i) => (
+            <span class:list={["m", { lit: lit.has(i), you: i === you }]}></span>
+          ))}
+        </div>
+        <figcaption class="mono">The anonymity set — your vote is one of these.<br />No one can tell which.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- THE IDEA -->
+  <section class="section wrap">
+    <ol class="ledger idea">
+      {steps.map((s, i) => (
+        <li>
+          <span class="idx">0{i + 1} / {s.k}</span>
+          <div>
+            <h3>{s.t}</h3>
+            <p class="muted">{s.d}</p>
+          </div>
+        </li>
+      ))}
+    </ol>
+  </section>
+
+  <!-- TWO DEMOS -->
+  <section class="section wrap">
+    <div class="demos">
+      <a class="card demo" href="/demo/fund">
+        <span class="tag tag-lime">Privacy</span>
+        <h2>ShadowFund</h2>
+        <p class="muted">Cast a real zero-knowledge vote on a community fund. The tally is timelock-sealed until it unseals on-chain.</p>
+        <span class="go mono">Open ShadowFund →</span>
+      </a>
+      <a class="card demo" href="/demo/agent">
+        <span class="tag tag-lime">Agentic</span>
+        <h2>AgentBoard</h2>
+        <p class="muted">An LLM-bounded agent reads the approved result and executes the swap — gated by an on-chain policy it can't break.</p>
+        <span class="go mono">Watch AgentBoard →</span>
+      </a>
+    </div>
+  </section>
+
+  <!-- PROOF -->
+  <section class="section wrap proof">
+    <div>
+      <p class="eyebrow">Deployed &amp; live</p>
+      <h2 class="proof-h">No mock. No replay.<br />Every demo runs on these contracts.</h2>
+    </div>
+    <ul class="proof-list">
+      {contracts.map((c) => (
+        <li><a class="mono" href={explorerContract(c.id)} target="_blank" rel="noopener"><span>{c.label}</span><span class="cid">{short(c.id, 6, 6)} ↗</span></a></li>
+      ))}
+    </ul>
+  </section>
 </Layout>
 
 <style>
-  .container-divider { width: 100%; max-width: var(--maxw); margin: 0 auto; opacity: 0.6; }
+  .hero { padding-block: clamp(3rem, 7vw, 6.5rem) clamp(2.5rem, 5vw, 4.5rem); }
+  .hero-grid { display: grid; grid-template-columns: 1.1fr 0.9fr; gap: clamp(2rem, 5vw, 4.5rem); align-items: center; }
+  .hero-copy h1 { max-width: 14ch; }
+  .lit { color: var(--lime); }
+  .hero-lede { margin: 1.5rem 0 2.1rem; max-width: 46ch; }
+  .hero-cta { display: flex; gap: 0.8rem; flex-wrap: wrap; }
+  .hero-foot { color: var(--muted); font-size: 0.78rem; margin-top: 1.8rem; display: inline-flex; align-items: center; gap: 0.5rem; }
+  .dotlive { width: 7px; height: 7px; border-radius: 50%; background: var(--lime); }
+
+  .hero-aset { margin: 0; }
+  .hero-aset .aset { padding: clamp(1rem, 2vw, 1.6rem); background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--radius-lg); }
+  .hero-aset figcaption { margin-top: 1rem; color: var(--muted); font-size: 0.74rem; line-height: 1.5; letter-spacing: 0.02em; }
+
+  .rise:nth-child(2){animation-delay:.05s}.rise:nth-child(3){animation-delay:.1s}.rise:nth-child(4){animation-delay:.15s}.rise:nth-child(5){animation-delay:.2s}
+
+  .idea h3 { margin-bottom: 0.25rem; }
+  .idea p { margin: 0; max-width: 54ch; }
+
+  .demos { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(1rem, 2.5vw, 1.6rem); }
+  .demo { display: flex; flex-direction: column; gap: 0.7rem; transition: border-color 0.15s, transform 0.12s; }
+  .demo:hover { text-decoration: none; border-color: var(--lime); transform: translateY(-3px); }
+  .demo h2 { margin: 0.2rem 0 0; }
+  .demo p { margin: 0; flex: 1; }
+  .demo .go { font-size: 0.82rem; color: var(--lime); }
+
+  .proof { display: grid; grid-template-columns: 1.3fr 1fr; gap: clamp(1.5rem, 4vw, 3rem); align-items: center; }
+  .proof-h { font-size: clamp(1.5rem, 2.5vw, 2.3rem); }
+  .proof-list { list-style: none; margin: 0; padding: 0; }
+  .proof-list li { border-top: 1px solid var(--line); }
+  .proof-list li:last-child { border-bottom: 1px solid var(--line); }
+  .proof-list a { display: flex; justify-content: space-between; gap: 1rem; padding: 0.95rem 0; color: var(--text-2); font-size: 0.82rem; }
+  .proof-list a .cid { color: var(--muted); }
+  .proof-list a:hover { text-decoration: none; color: var(--lime); }
+  .proof-list a:hover .cid { color: var(--lime); }
+
+  @media (max-width: 880px) {
+    .hero-grid { grid-template-columns: 1fr; gap: 2.2rem; }
+    .hero-aset { max-width: 420px; }
+  }
+  @media (max-width: 720px) { .demos, .proof { grid-template-columns: 1fr; } }
 </style>

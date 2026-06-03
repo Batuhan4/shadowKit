@@ -85,3 +85,6 @@ web/.dev.vars
 
 # wrangler pages dev local cache
 web/.wrangler/
+
+# dev-only responsive preview harness
+web/public/__resp.html
