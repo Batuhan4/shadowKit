@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  * { margin: 0; box-sizing: border-box; }
+  html, body { width: 1200px; height: 630px; overflow: hidden; }
+  body {
+    background: #0b0b12;
+    font-family: "Space Grotesk", system-ui, sans-serif;
+    color: #f4f4fb;
+    position: relative;
+  }
+  .bg {
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(60% 70% at 8% -10%, rgba(139,124,255,0.30), transparent 60%),
+      radial-gradient(60% 70% at 100% 10%, rgba(61,224,230,0.22), transparent 58%),
+      radial-gradient(80% 80% at 60% 130%, rgba(139,124,255,0.12), transparent 60%);
+  }
+  .grid {
+    position: absolute; inset: 0; opacity: 0.05;
+    background-image: linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px);
+    background-size: 48px 48px;
+  }
+  .wrap { position: absolute; inset: 0; padding: 54px 80px; display: flex; flex-direction: column; }
+  .top { display: flex; align-items: center; gap: 16px; }
+  .seal { width: 56px; height: 56px; }
+  .brand { font-size: 34px; font-weight: 500; letter-spacing: -0.5px; }
+  .brand b { font-weight: 700; color: #8b7cff; }
+  .eyebrow { margin-left: auto; font-family: "JetBrains Mono", monospace; font-size: 16px; letter-spacing: 0.28em; text-transform: uppercase; color: #8b7cff; }
+  .mid { margin-top: 34px; }
+  h1 { font-size: 78px; line-height: 1.0; font-weight: 700; letter-spacing: -2px; }
+  .grad { background: linear-gradient(110deg, #8b7cff, #3de0e6); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .sub { margin-top: 22px; font-size: 24px; line-height: 1.4; color: #9093a8; max-width: 940px; }
+  .sub b { color: #f4f4fb; font-weight: 500; }
+  .row { margin-top: 34px; display: flex; align-items: center; gap: 14px; }
+  .badge { font-family: "JetBrains Mono", monospace; font-size: 17px; padding: 9px 18px; border-radius: 999px; border: 1px solid #262635; color: #9093a8; }
+  .b-veil { color: #8b7cff; border-color: rgba(139,124,255,0.45); }
+  .b-cyan { color: #3de0e6; border-color: rgba(61,224,230,0.45); }
+  .b-green { color: #56d98a; border-color: rgba(86,217,138,0.45); }
+  .url { margin-left: auto; font-family: "JetBrains Mono", monospace; font-size: 19px; color: #3de0e6; }
+</style>
+</head>
+<body>
+  <div class="bg"></div>
+  <div class="grid"></div>
+  <div class="wrap">
+    <div class="top">
+      <svg class="seal" viewBox="0 0 32 32" fill="none">
+        <defs><linearGradient id="g" x1="0" y1="0" x2="32" y2="32"><stop offset="0" stop-color="#8b7cff"/><stop offset="1" stop-color="#3de0e6"/></linearGradient></defs>
+        <path d="M10 2h12l8 8v12l-8 8H10l-8-8V10z" stroke="url(#g)" stroke-width="1.6" fill="rgba(139,124,255,0.10)"/>
+        <circle cx="16" cy="14" r="3.1" stroke="url(#g)" stroke-width="1.6"/>
+        <path d="M16 17v6" stroke="url(#g)" stroke-width="1.6" stroke-linecap="round"/>
+      </svg>
+      <div class="brand">Shadow<b>Kit</b></div>
+      <div class="eyebrow">ZK + AI · Stellar</div>
+    </div>
+    <div class="mid">
+      <h1>Vote in the shadows.<br/><span class="grad">Execute in the light.</span></h1>
+      <div class="sub">Private <b>zero-knowledge</b> DAO voting with a <b>timelock-sealed</b> tally — then an <b>LLM-bounded agent</b> executes the approved action on-chain, gated by a policy it can't break.</div>
+    </div>
+    <div class="row">
+      <span class="badge b-veil">● Hack Privacy</span>
+      <span class="badge b-cyan">● Hack Agentic</span>
+      <span class="badge b-green">● Live on Stellar testnet</span>
+      <span class="url">shadowkit.pages.dev</span>
+    </div>
+  </div>
+</body>
+</html>
