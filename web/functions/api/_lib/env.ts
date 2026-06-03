@@ -21,6 +21,14 @@ export interface WorkerEnv {
   X402_PRICE_USDC?: string;
   X402_FACILITATOR_URL?: string;
   X402_USDC_SAC?: string;
+  /** OpenZeppelin Channels facilitator API key (Bearer auth on verify/settle/supported). */
+  OZ_API_KEY?: string;
+  /** Raw (stroop-scale) price charged in our self-issued USDC SAC, e.g. "10000". */
+  X402_PRICE_RAW?: string;
+  /** The admin/deployer S… secret used to admin-sign per-session GovVault proposals. */
+  ADMIN_SECRET?: string;
+  /** Per-session proposal TTL in seconds (added to the latest ledger close time). */
+  SESSION_TTL_SECONDS?: string;
   PREMIUM_DATA_URL?: string;
   DEMO_PROPOSAL_ID?: string;
   USDC_PAIR?: string;

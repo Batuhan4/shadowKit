@@ -1,5 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
 // Mock the heavy real modules at the COMPONENT boundary (allowed by charter — the REAL voteClient /
 // wallet paths are exercised in voteClient.test.ts with real crypto + a live simulation). Here we only
@@ -49,5 +50,58 @@ describe("FundApp", () => {
     render(<FundApp projects={projects} proposalId={0} poolUsdc="10000" />);
     expect(screen.queryByText(/weighted yes/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/weighted no/i)).not.toBeInTheDocument();
+  });
+
+  it("shows a Start voting session button (per-session proposal bootstrap)", () => {
+    render(<FundApp projects={projects} proposalId={0} poolUsdc="10000" />);
+    expect(
+      screen.getByRole("button", { name: /start voting session/i }),
+    ).toBeInTheDocument();
+  });
+});
+
+describe("FundApp — per-session proposal bootstrap", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllMocks();
+  });
+
+  it("POSTs /api/session/create-proposal and adopts the returned id + deadline countdown", async () => {
+    const deadline = Math.floor(Date.now() / 1000) + 150;
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        new Response(JSON.stringify({ proposalId: 42, deadline }), { status: 200 }),
+      );
+
+    render(<FundApp projects={projects} proposalId={0} poolUsdc="10000" />);
+    // before the session, the badge shows the PROP default proposal #0.
+    expect(screen.getByText(/proposal #0/i)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /start voting session/i }));
+
+    // it called our session endpoint with POST.
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/api/session/create-proposal",
+      expect.objectContaining({ method: "POST" }),
+    );
+    // the freshly-minted proposal id replaces the prop default + a live countdown appears.
+    await waitFor(() => expect(screen.getByText(/proposal #42/i)).toBeInTheDocument());
+    expect(screen.getByText(/fresh session/i)).toBeInTheDocument();
+    expect(screen.getByText(/closes in/i)).toBeInTheDocument();
+  });
+
+  it("surfaces the 503 ADMIN_SECRET error without crashing", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ error: "ADMIN_SECRET not configured" }), { status: 503 }),
+    );
+    render(<FundApp projects={projects} proposalId={0} poolUsdc="10000" />);
+    await userEvent.click(screen.getByRole("button", { name: /start voting session/i }));
+    await waitFor(() =>
+      expect(screen.getByText(/ADMIN_SECRET not configured/i)).toBeInTheDocument(),
+    );
+    // it falls back to the prop-default proposal (no session id adopted).
+    expect(screen.getByText(/proposal #0/i)).toBeInTheDocument();
   });
 });

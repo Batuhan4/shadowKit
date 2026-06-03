@@ -55,6 +55,19 @@ export function FundApp({ projects, proposalId, poolUsdc }: FundAppProps) {
   const [votesSealed, setVotesSealed] = useState<number>(0);
   const [walletError, setWalletError] = useState<string | null>(null);
 
+  // Per-session GovVault proposal: the deployed contract needs a FRESH short-deadline proposal each
+  // session (create_proposal requires admin auth + deadline>now; close_and_reveal requires
+  // now>=deadline). We POST /api/session/create-proposal (admin-signed server-side) to mint one, and
+  // use its id+deadline for the vote/reveal flow. The `proposalId` PROP stays the fallback default.
+  const [sessionProposalId, setSessionProposalId] = useState<number | null>(null);
+  const [sessionDeadline, setSessionDeadline] = useState<number | null>(null);
+  const [sessionLoading, setSessionLoading] = useState(false);
+  const [sessionError, setSessionError] = useState<string | null>(null);
+  const [nowSec, setNowSec] = useState<number>(() => Math.floor(Date.now() / 1000));
+
+  // The active proposal: the freshly-minted session proposal if present, else the prop default.
+  const activeProposalId = sessionProposalId ?? proposalId;
+
   // the kit instance + artifacts are lazy/heavy — load once.
   const kitRef = useRef<typeof import("@creit.tech/stellar-wallets-kit").StellarWalletsKit | null>(null);
   const artifactsRef = useRef<Artifacts | null>(null);
@@ -70,7 +83,7 @@ export function FundApp({ projects, proposalId, poolUsdc }: FundAppProps) {
   // initial on-chain read of the participation count (safe — never the tally).
   useEffect(() => {
     let alive = true;
-    readVotesCast(proposalId)
+    readVotesCast(activeProposalId)
       .then((n) => {
         if (alive) {
           setVotesSealed(n);
@@ -81,7 +94,45 @@ export function FundApp({ projects, proposalId, poolUsdc }: FundAppProps) {
     return () => {
       alive = false;
     };
-  }, [proposalId]);
+  }, [activeProposalId]);
+
+  // Live 1s ticker for the deadline countdown (only runs while a session deadline is set).
+  useEffect(() => {
+    if (sessionDeadline == null) return;
+    const t = setInterval(() => setNowSec(Math.floor(Date.now() / 1000)), 1000);
+    return () => clearInterval(t);
+  }, [sessionDeadline]);
+
+  // Mint a fresh per-session proposal (admin-signed server-side) and adopt its id + deadline.
+  const startSession = useCallback(async () => {
+    setSessionLoading(true);
+    setSessionError(null);
+    try {
+      const res = await fetch("/api/session/create-proposal", { method: "POST" });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? `create-proposal ${res.status}`);
+      }
+      const { proposalId: id, deadline } = (await res.json()) as {
+        proposalId: number;
+        deadline: number;
+      };
+      // a new session resets the per-round vote bookkeeping.
+      sealedRef.current = [];
+      nextMemberRef.current = 0;
+      setVotesSealed(0);
+      setSessionProposalId(id);
+      setSessionDeadline(deadline);
+      setNowSec(Math.floor(Date.now() / 1000));
+    } catch (e) {
+      setSessionError((e as Error).message);
+    } finally {
+      setSessionLoading(false);
+    }
+  }, []);
+
+  const secondsLeft =
+    sessionDeadline != null ? Math.max(0, sessionDeadline - nowSec) : null;
 
   const getKit = useCallback(async () => {
     if (kitRef.current) return kitRef.current;
@@ -134,16 +185,17 @@ export function FundApp({ projects, proposalId, poolUsdc }: FundAppProps) {
         const artifacts = await getArtifacts();
         const memberIndex = nextMemberRef.current % members.length;
         const member = { ...members[memberIndex]!, direction };
-        // a near-future deadline so the tlock round is in the future when sealing.
-        const deadline = Math.floor(Date.now() / 1000) + 90;
-        const result = await buildVoteProof(member, proposalId, deadline, artifacts);
+        // Seal to the live session deadline (so the tlock round unlocks at close); fall back to a
+        // near-future deadline if no session was bootstrapped (the prop-default proposal path).
+        const deadline = sessionDeadline ?? Math.floor(Date.now() / 1000) + 90;
+        const result = await buildVoteProof(member, activeProposalId, deadline, artifacts);
         return { result, memberIndex } satisfies VoteBundle;
       },
       seal: async () => {/* the tlock seal happens inside buildVoteProof; nothing extra here */},
       submit: async (bundle) => {
         if (!address) throw new Error("connect a wallet first");
         const { result } = bundle as VoteBundle;
-        const xdr = await buildCastVoteXdr(address, proposalId, result);
+        const xdr = await buildCastVoteXdr(address, activeProposalId, result);
         const kit = await getKit();
         const { signedTxXdr } = await kit.signTransaction(xdr, {
           networkPassphrase: CONFIG.networkPassphrase,
@@ -157,7 +209,7 @@ export function FundApp({ projects, proposalId, poolUsdc }: FundAppProps) {
         return res;
       },
     }),
-    [address, getArtifacts, getKit, proposalId],
+    [address, getArtifacts, getKit, activeProposalId, sessionDeadline],
   );
 
   // REAL RevealStage engine: tlock-decrypt this round's sealed votes -> close_and_reveal on-chain.
@@ -172,7 +224,7 @@ export function FundApp({ projects, proposalId, poolUsdc }: FundAppProps) {
         const { revealedYesW, revealedNoW, decryptions } = await buildRevealFromSealed(sealed);
         const xdr = await buildCloseAndRevealXdr(
           address,
-          proposalId,
+          activeProposalId,
           revealedYesW,
           revealedNoW,
           decryptions,
@@ -183,11 +235,11 @@ export function FundApp({ projects, proposalId, poolUsdc }: FundAppProps) {
           address,
         });
         const res = await submitSignedXdr(signedTxXdr);
-        const approved = await readIsApproved(proposalId);
+        const approved = await readIsApproved(activeProposalId);
         return { approved, yesW: revealedYesW, noW: revealedNoW, txHash: res.txHash };
       },
     }),
-    [address, getKit, proposalId],
+    [address, getKit, activeProposalId],
   );
 
   return (
@@ -195,7 +247,10 @@ export function FundApp({ projects, proposalId, poolUsdc }: FundAppProps) {
       <div className="fundapp-bar">
         <div className="fundapp-bar-left">
           <span className="badge badge-cyan">● Live on testnet</span>
-          <span className="mono fundapp-prop">proposal #{proposalId}</span>
+          <span className="mono fundapp-prop">proposal #{activeProposalId}</span>
+          {sessionProposalId != null && (
+            <span className="badge badge-green">fresh session</span>
+          )}
         </div>
         <WalletConnect
           address={address}
@@ -204,6 +259,40 @@ export function FundApp({ projects, proposalId, poolUsdc }: FundAppProps) {
           busy={connecting}
         />
       </div>
+
+      <div className="fundapp-session">
+        <button
+          type="button"
+          className="btn btn-primary"
+          onClick={startSession}
+          disabled={sessionLoading}
+        >
+          {sessionLoading
+            ? "Minting proposal…"
+            : sessionProposalId != null
+              ? "Start a new voting session"
+              : "Start voting session"}
+        </button>
+        {sessionProposalId != null && secondsLeft != null && (
+          <span className="fundapp-countdown mono" role="status" aria-live="polite">
+            {secondsLeft > 0 ? (
+              <>closes in <strong>{secondsLeft}s</strong> · deadline {sessionDeadline}</>
+            ) : (
+              <>deadline reached — reveal now</>
+            )}
+          </span>
+        )}
+        {sessionProposalId == null && !sessionLoading && (
+          <span className="fundapp-session-hint">
+            Mints a fresh short-deadline GovVault proposal so this round can close & reveal live.
+          </span>
+        )}
+      </div>
+      {sessionError && (
+        <p className="fundapp-werr" role="alert">
+          Session error: {sessionError}
+        </p>
+      )}
       {walletError && (
         <p className="fundapp-werr" role="alert">
           Wallet error: {walletError}
@@ -223,7 +312,7 @@ export function FundApp({ projects, proposalId, poolUsdc }: FundAppProps) {
         {address && selectedProject?.live ? (
           <SealedVoteFlow
             address={address}
-            proposalId={proposalId}
+            proposalId={activeProposalId}
             projectName={selectedProject.name}
             engine={voteEngine}
             onDone={() => {/* count already advanced in submit */}}
@@ -244,7 +333,7 @@ export function FundApp({ projects, proposalId, poolUsdc }: FundAppProps) {
         {address && selectedProject ? (
           <RevealStage
             address={address}
-            proposalId={proposalId}
+            proposalId={activeProposalId}
             projectName={selectedProject.name}
             poolUsdc={poolUsdc}
             engine={revealEngine}
@@ -255,8 +344,12 @@ export function FundApp({ projects, proposalId, poolUsdc }: FundAppProps) {
       <style>{`
         .fundapp { display: flex; flex-direction: column; gap: 1.6rem; }
         .fundapp-bar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
-        .fundapp-bar-left { display: inline-flex; align-items: center; gap: .7rem; }
+        .fundapp-bar-left { display: inline-flex; align-items: center; gap: .7rem; flex-wrap: wrap; }
         .fundapp-prop { color: var(--mist-2); font-size: .82rem; }
+        .fundapp-session { display: inline-flex; align-items: center; gap: .9rem; flex-wrap: wrap; }
+        .fundapp-countdown { color: var(--cyan, #36d3ff); font-size: .82rem; }
+        .fundapp-countdown strong { color: var(--mist-1, #fff); }
+        .fundapp-session-hint { color: var(--mist-2); font-size: .8rem; }
         .fundapp-werr { color: var(--red); font-size: .88rem; margin: 0; }
         .fundapp-action { display: grid; grid-template-columns: 1.15fr 1fr; gap: 1.2rem; align-items: start; }
         .fundapp-cta { display: flex; flex-direction: column; gap: .8rem; }
