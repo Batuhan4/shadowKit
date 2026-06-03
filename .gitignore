@@ -81,3 +81,7 @@ secrets/
 
 # Web demo site: ZK proving artifacts are build-copied (web prebuild) from circuits/vote/fixtures/.
 web/public/zk/
+web/.dev.vars
+
+# wrangler pages dev local cache
+web/.wrangler/
