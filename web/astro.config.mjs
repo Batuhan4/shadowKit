@@ -2,6 +2,7 @@
 import { defineConfig } from "astro/config";
 import react from "@astrojs/react";
 import starlight from "@astrojs/starlight";
+import remarkGfm from "remark-gfm";
 
 // foundation §1/§6: @astrojs/react integration; vite build target es2020 (tlock-js req at M5).
 // docs: @astrojs/starlight serves the `docs` content collection. Files live under
@@ -55,6 +56,9 @@ export default defineConfig({
   ],
   // site: canonical origin (the public custom domain) — Starlight uses it for sitemap/canonical.
   site: "https://shadowkit.nexvar.io",
+  // GFM (tables, strikethrough, autolinks) for both .md and .mdx. The Starlight docs use markdown
+  // tables (Contracts/Packages entrypoint tables); without remark-gfm they render as raw `| … |` text.
+  markdown: { remarkPlugins: [remarkGfm] },
   vite: {
     // es2022 (not es2020): Starlight + some deps emit top-level await, which needs es2022+.
     // tlock-js (the M5 reason for the old es2020 pin) works fine at es2022 (superset).

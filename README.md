@@ -1,9 +1,11 @@
 # ShadowKit & AgentBoard
 
 > **Vote in the shadows. Execute in the light.**
-> ZK- + AI-powered autonomous DAO governance infrastructure on **Stellar / Soroban**.
+> Zero-knowledge DAO governance on **Stellar / Soroban**.
 
-🔗 **Live demo:** https://shadowkit.nexvar.io — 🛰️ **Network:** Stellar **testnet** · Built for **Build On Stellar — IBW 2026** (Main · Hack Privacy · Hack Agentic)
+ShadowKit is privacy infrastructure for DAO voting on Stellar/Soroban. Members cast **weighted votes with zero-knowledge proofs** — who voted, how much weight they hold, and which way they voted all stay private — and the running tally is **timelock-encrypted so it's cryptographically unknowable until the deadline**, eliminating whale-watching and coercion. After close, the result is revealed and re-aggregated on-chain, and (as a bonus use-case) a policy-bounded AI agent can carry out the approved decision.
+
+🔗 **Live demo:** https://shadowkit.nexvar.io — 🛰️ **Network:** Stellar **testnet** · Built for **Build On Stellar — IBW 2026** · Track: **Hack Privacy**
 
 ---
 
@@ -22,10 +24,10 @@ The result: members vote in the shadows; the agent executes in the light.
 
 | Demo | Route | Showcases | What's live |
 |---|---|---|---|
-| **ShadowFund** | [`/demo/fund`](https://shadowkit.pages.dev/demo/fund) | **Hack Privacy** — SCF-style community-fund voting | Connect a wallet → cast a **real** sealed ZK vote (snarkjs proof + tlock seal generated in your browser) → submitted on-chain. Tally stays blurred until **Close & Reveal** runs the real drand decrypt + `close_and_reveal`. |
-| **AgentBoard** | [`/demo/agent`](https://shadowkit.pages.dev/demo/agent) | **Hack Agentic** — bounded AI execution + x402 | A Cloudflare Worker reads the approved proposal → pays for market data over **x402** → asks **Gemini** for a plan → **policy-gates** it → executes the swap on-chain, streaming every step live. |
+| **ShadowFund** | [`/demo/fund`](https://shadowkit.nexvar.io/demo/fund) | **Hack Privacy** — SCF-style community-fund voting | Connect a wallet → cast a **real** sealed ZK vote (snarkjs proof + tlock seal generated in your browser) → submitted on-chain. Tally stays blurred until **Close & Reveal** runs the real drand decrypt + `close_and_reveal`. |
+| **AgentBoard** | [`/demo/agent`](https://shadowkit.nexvar.io/demo/agent) | **AI-in-a-DAO use-case** — bounded AI execution + x402 | A Cloudflare Worker reads the approved proposal → pays for market data over **x402** → asks **Gemini** for a plan → **policy-gates** it → executes the swap on-chain, streaming every step live. |
 
-📚 **SDK docs:** [`/docs`](https://shadowkit.pages.dev/docs)
+📚 **SDK docs:** [`/docs`](https://shadowkit.nexvar.io/docs)
 
 ## Live testnet contracts
 

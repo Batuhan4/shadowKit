@@ -49,6 +49,10 @@ function baseDeps(over: Partial<AgentLoopDeps> = {}): AgentLoopDeps {
       submitSwap: vi.fn(async () => ({ txHash: "TXHASH123" })),
       markExecuted: vi.fn(async () => ({ txHash: "MARKTX456" })),
     },
+    funder: {
+      ensureFunds: vi.fn(async () => ({ minted: "8000", balance: "8000", txHash: "MINTTX789" })),
+    },
+    treasuryAddr: "GTREASURY",
     approvedVenue: "CAMM",
     ...over,
   };
@@ -90,7 +94,47 @@ describe("runAgentLoop — HAPPY path (fully live shape)", () => {
     expect(result.balancesBefore).toBeDefined();
     expect(result.balancesAfter).toBeDefined();
     expect(deps.executor.submitSwap).toHaveBeenCalledOnce();
-    // proposal is marked Executed on-chain after the swap (single-shot consume)
+    // REPEATABLE-DEMO DEFAULT: the proposal is NOT marked Executed, so it stays Approved and the demo
+    // can be re-run by a judge. mark_executed must NOT be called; a clear "left APPROVED" line is shown.
+    expect(deps.executor.markExecuted).not.toHaveBeenCalled();
+    expect(events.some((e) => e.phase === "submit" && /left APPROVED/i.test(e.message))).toBe(true);
+  });
+});
+
+describe("runAgentLoop — repeatable funding (treasury top-up before the swap)", () => {
+  it("mints the input-asset shortfall up to the plan amount BEFORE submitting the swap", async () => {
+    const deps = baseDeps();
+    const { events } = await collect(deps);
+    // funder is called with the approved assetIn, the treasury, and the plan's amountIn as target
+    expect(deps.funder!.ensureFunds).toHaveBeenCalledWith({
+      tokenId: "CUSDC",
+      to: "GTREASURY",
+      target: "8000",
+    });
+    // an honest top-up line is surfaced and the swap still runs afterwards
+    expect(events.some((e) => e.phase === "submit" && /topped up/i.test(e.message))).toBe(true);
+    expect(deps.executor.submitSwap).toHaveBeenCalledOnce();
+  });
+
+  it("a funding failure is NON-FATAL — the swap still proceeds against the existing balance", async () => {
+    const deps = baseDeps({
+      funder: {
+        ensureFunds: vi.fn(async () => {
+          throw new Error("mint rpc failed");
+        }),
+      },
+    });
+    const { events, result } = await collect(deps);
+    expect(result.status).toBe("ok");
+    expect(deps.executor.submitSwap).toHaveBeenCalledOnce();
+    expect(events.some((e) => e.phase === "submit" && /top-up did not complete/i.test(e.message))).toBe(true);
+  });
+});
+
+describe("runAgentLoop — opt-in single-shot consume (markExecutedAfter)", () => {
+  it("marks the proposal Executed on-chain after the swap when markExecutedAfter=true", async () => {
+    const deps = baseDeps({ markExecutedAfter: true });
+    const { events } = await collect(deps);
     expect(deps.executor.markExecuted).toHaveBeenCalledWith(0);
     expect(events.some((e) => e.phase === "submit" && /marked Executed/i.test(e.message))).toBe(true);
   });

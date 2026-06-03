@@ -20,8 +20,10 @@ import { makeSseStream, SSE_HEADERS } from "../_lib/sse";
 import {
   StellarGovReader,
   StellarExecutor,
+  StellarFunder,
   type GovReader,
   type Executor,
+  type Funder,
   type ProposalRead,
   type TreasuryBalances,
 } from "../_lib/stellar";
@@ -31,6 +33,8 @@ import { CONFIG, explorerTx } from "../../../src/lib/config";
 import {
   type WorkerEnv,
   demoProposalId,
+  markExecutedEnabled,
+  autoFundEnabled,
   DEFAULT_GEMINI_MODEL,
   DEFAULT_PAIR,
 } from "../_lib/env";
@@ -60,6 +64,24 @@ export interface AgentLoopDeps {
     }): Promise<{ txHash: string }>;
     markExecuted(id: number): Promise<{ txHash: string }>;
   };
+  /** Optional treasury top-up before the swap. Each swap drains the treasury's input asset, so for a
+   *  REPEATABLE demo we re-mint the shortfall (via the USDC SAC admin) so every run has funds. When
+   *  absent the loop simply skips funding (the swap still runs against whatever balance exists). */
+  funder?: {
+    ensureFunds(args: {
+      tokenId: string;
+      to: string;
+      target: string;
+    }): Promise<{ minted: string; balance: string; txHash: string }>;
+  };
+  /** The treasury address that holds + signs the swap (the `to`/funded account). Required for funding. */
+  treasuryAddr?: string;
+  /** When true, call GovVault.mark_executed after the swap (single-shot consume). DEFAULT FALSE for
+   *  the repeatable demo: the dedicated APPROVED proposal is intentionally NOT marked Executed so a
+   *  judge can re-run "Run the agent" any number of times (the swap still executes for real each run).
+   *  This relaxes the proposal's single-shot semantics FOR THE DEMO ONLY — the on-chain mark_executed
+   *  guard itself is unchanged and is exercised by scripts/demo.sh's full lifecycle. */
+  markExecutedAfter?: boolean;
   approvedVenue?: string;
   pair?: string;
   /** When true, an unsettled x402 payment HARD-STOPS the loop (402, no plan, no tx) — the strict
@@ -219,6 +241,30 @@ export async function runAgentLoop(
     }
     emit({ phase: "policy", message: "policy ALLOWED — plan is within bounds", allowed: true });
 
+    // 4b) Treasury top-up (repeatable-demo funding): each swap drains the treasury's input asset, so
+    // before submitting we re-mint the shortfall (via the USDC SAC admin) up to the plan amount. This
+    // is what keeps a judge's repeated "Run the agent" clicks succeeding. Non-fatal: a funding hiccup
+    // must NOT abort the run — surface it and let the swap try against the existing balance.
+    if (deps.funder && deps.treasuryAddr) {
+      try {
+        const fund = await deps.funder.ensureFunds({
+          tokenId: prop.spec.assetIn,
+          to: deps.treasuryAddr,
+          target: plan.amountIn,
+        });
+        if (BigInt(fund.minted) > 0n) {
+          emit({
+            phase: "submit",
+            message: `treasury topped up · minted ${fund.minted} assetIn (balance ${fund.balance})${fund.txHash ? ` · tx ${fund.txHash}` : ""}`,
+          });
+        } else {
+          emit({ phase: "submit", message: `treasury already funded (balance ${fund.balance} ≥ ${plan.amountIn})` });
+        }
+      } catch (e) {
+        emit({ phase: "submit", message: `note: treasury top-up did not complete (${(e as Error).message}) — proceeding with existing balance` });
+      }
+    }
+
     // 5) Submit the swap on-chain (signed server-side by EXECUTOR_SECRET).
     emit({ phase: "submit", message: "submitting swap on-chain…" });
     const sub = await deps.executor.submitSwap({
@@ -234,20 +280,30 @@ export async function runAgentLoop(
       explorer,
     });
 
-    // Mark the proposal Executed on-chain (single-shot consume; satisfies the 409-already-executed
-    // guard on re-runs). Non-fatal: the swap already moved funds, so a mark_executed hiccup must NOT
-    // fail the run — surface it and continue to the balances/done summary.
-    try {
-      const marked = await deps.executor.markExecuted(params.proposalId);
+    // Mark the proposal Executed on-chain (single-shot consume) ONLY when explicitly enabled. The
+    // repeatable AgentBoard demo leaves it OFF so the dedicated APPROVED proposal stays re-runnable
+    // (the swap above still moved funds for real every run). The full single-shot lifecycle — create →
+    // sealed votes → close_and_reveal → Approved → swap → mark_executed → 409-on-rerun — is exercised
+    // by scripts/demo.sh; here we keep the demo "never dies". Non-fatal when enabled: a mark_executed
+    // hiccup must NOT fail the run since the swap already settled.
+    if (deps.markExecutedAfter) {
+      try {
+        const marked = await deps.executor.markExecuted(params.proposalId);
+        emit({
+          phase: "submit",
+          message: `proposal #${params.proposalId} marked Executed${marked.txHash ? ` · tx ${marked.txHash}` : ""}`,
+          txHash: marked.txHash || undefined,
+        });
+      } catch (e) {
+        emit({
+          phase: "submit",
+          message: `note: mark_executed did not complete (${(e as Error).message}) — swap already settled on-chain`,
+        });
+      }
+    } else {
       emit({
         phase: "submit",
-        message: `proposal #${params.proposalId} marked Executed${marked.txHash ? ` · tx ${marked.txHash}` : ""}`,
-        txHash: marked.txHash || undefined,
-      });
-    } catch (e) {
-      emit({
-        phase: "submit",
-        message: `note: mark_executed did not complete (${(e as Error).message}) — swap already settled on-chain`,
+        message: `proposal #${params.proposalId} left APPROVED (demo stays re-runnable; mark_executed skipped)`,
       });
     }
 
@@ -309,6 +365,13 @@ function realDeps(env: WorkerEnv, origin: string): AgentLoopDeps {
   };
   const govReader: GovReader = new StellarGovReader(chainCfg);
   const executor: Executor = new StellarExecutor(chainCfg, env.EXECUTOR_SECRET ?? "");
+  // The repeatable-demo funder mints the treasury's USDC shortfall before each swap. Needs the USDC
+  // SAC admin key — on testnet that is the deployer/ADMIN_SECRET (same key that admin-signs proposals).
+  // Disabled if no ADMIN_SECRET or AGENT_AUTOFUND="false"; the swap then runs against existing balance.
+  const funder: Funder | undefined =
+    autoFundEnabled(env) && env.ADMIN_SECRET
+      ? new StellarFunder(chainCfg, env.ADMIN_SECRET)
+      : undefined;
   const premiumDataUrl = env.PREMIUM_DATA_URL ?? `${origin}/api/premium-data`;
   const payAndQuote = makePayAndQuote({
     premiumDataUrl,
@@ -324,6 +387,9 @@ function realDeps(env: WorkerEnv, origin: string): AgentLoopDeps {
     payAndQuote,
     planner,
     executor,
+    funder,
+    treasuryAddr: CONFIG.treasuryAddr,
+    markExecutedAfter: markExecutedEnabled(env),
     approvedVenue: CONFIG.ammId,
     pair: env.USDC_PAIR ?? DEFAULT_PAIR,
     x402Required: env.X402_REQUIRED === "true",

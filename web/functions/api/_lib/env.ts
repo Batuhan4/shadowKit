@@ -35,10 +35,21 @@ export interface WorkerEnv {
   /** "true" → an unsettled x402 payment hard-stops the agent loop (strict). Otherwise (default) the
    *  loop continues with a public market quote so the agentic core stays live. */
   X402_REQUIRED?: string;
+  /** "true" → after a successful swap the loop calls GovVault.mark_executed, consuming the proposal
+   *  (single-shot). Default (unset/"false") → the loop does NOT mark_executed so the dedicated
+   *  APPROVED demo proposal stays re-runnable for repeated judge clicks (the swap still executes for
+   *  real every run). See AGENT_MARK_EXECUTED in execute.ts for the rationale. */
+  AGENT_MARK_EXECUTED?: string;
+  /** "true" (default) → before the swap, the loop tops up the treasury's assetIn (USDC) to the plan
+   *  amount by minting the shortfall via the USDC SAC admin (ADMIN_SECRET). Keeps the demo repeatable
+   *  even though each swap drains the treasury's input asset. Set "false" to disable auto-funding. */
+  AGENT_AUTOFUND?: string;
 }
 
 /** The proposal the AgentBoard demo executes (override with DEMO_PROPOSAL_ID). Must be APPROVED
- *  on-chain (GovVault) for the demo to run; if not, the loop returns 403 with a clear message. */
+ *  on-chain (GovVault) for the demo to run; if not, the loop returns 403 with a clear message.
+ *  Proposal #0 is the dedicated long-lived APPROVED proposal provisioned for the repeatable demo
+ *  (Approved, NOT executed) — the loop deliberately does NOT mark it Executed so a judge can re-run. */
 export const DEFAULT_DEMO_PROPOSAL_ID = 0;
 
 /** The trading pair the agent buys premium data for (override with USDC_PAIR). */
@@ -49,4 +60,16 @@ export const DEFAULT_GEMINI_MODEL = "gemini-3.1-flash-lite";
 export function demoProposalId(env: WorkerEnv): number {
   const v = env.DEMO_PROPOSAL_ID;
   return v && /^[0-9]+$/.test(v) ? Number(v) : DEFAULT_DEMO_PROPOSAL_ID;
+}
+
+/** Whether to consume the proposal via GovVault.mark_executed after a successful swap. Default OFF so
+ *  the dedicated APPROVED demo proposal stays re-runnable; opt in with AGENT_MARK_EXECUTED="true". */
+export function markExecutedEnabled(env: WorkerEnv): boolean {
+  return env.AGENT_MARK_EXECUTED === "true";
+}
+
+/** Whether to top up the treasury's input asset before the swap (mint shortfall via USDC SAC admin).
+ *  Default ON so repeated runs never fail on a drained treasury; opt out with AGENT_AUTOFUND="false". */
+export function autoFundEnabled(env: WorkerEnv): boolean {
+  return env.AGENT_AUTOFUND !== "false";
 }
