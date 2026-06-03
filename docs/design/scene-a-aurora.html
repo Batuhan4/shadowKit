@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500&family=Hanken+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:1440px;height:900px}
+  :root{
+    --void:#06060C; --violet:#8B6CFF; --teal:#2FE3C6; --rose:#FF74B8; --gold:#FFD27A;
+    --ink:#EDEAFB; --mut:#A6A4C8;
+    --disp:'Fraunces',serif; --body:'Hanken Grotesk','Cantarell',sans-serif; --mono:'Space Mono','Hack',monospace;
+  }
+  body{background:var(--void);color:var(--ink);font-family:var(--body);overflow:hidden;position:relative;
+       -webkit-print-color-adjust:exact;print-color-adjust:exact}
+  /* aurora field */
+  .aur{position:absolute;border-radius:50%;filter:blur(90px);opacity:.85;animation:drift 18s ease-in-out infinite alternate}
+  .a1{width:760px;height:620px;top:-220px;left:-120px;background:radial-gradient(circle,rgba(139,108,255,.9),transparent 65%)}
+  .a2{width:680px;height:640px;top:-160px;right:-160px;background:radial-gradient(circle,rgba(47,227,198,.7),transparent 65%);animation-delay:-6s}
+  .a3{width:720px;height:560px;bottom:-280px;left:34%;background:radial-gradient(circle,rgba(255,116,184,.6),transparent 65%);animation-delay:-11s}
+  @keyframes drift{from{transform:translate(0,0) scale(1)}to{transform:translate(40px,30px) scale(1.12)}}
+  .grain{position:absolute;inset:0;opacity:.05;mix-blend-mode:overlay;pointer-events:none;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
+  .scrim{position:absolute;inset:0;background:radial-gradient(120% 90% at 50% 30%,transparent 40%,rgba(6,6,12,.7) 100%)}
+  .wrap{position:relative;z-index:2;height:100%;padding:54px 64px;display:flex;flex-direction:column}
+  .nav{display:flex;justify-content:space-between;align-items:center}
+  .brand{font-family:var(--disp);font-weight:500;font-size:23px;letter-spacing:.01em}
+  .brand i{font-style:italic;color:var(--gold)}
+  .nav .r{display:flex;gap:8px;align-items:center;font-family:var(--mono);font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--mut)}
+  .live{width:7px;height:7px;border-radius:50%;background:var(--teal);box-shadow:0 0 12px var(--teal)}
+  .hero{margin-top:46px}
+  .ey{font-family:var(--mono);font-size:12px;letter-spacing:.4em;text-transform:uppercase;color:var(--teal)}
+  h1{font-family:var(--disp);font-weight:300;font-size:96px;line-height:.96;letter-spacing:-.02em;margin-top:18px}
+  h1 b{font-weight:500;font-style:italic;background:linear-gradient(100deg,var(--violet),var(--teal) 60%,var(--gold));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .sub{font-size:17px;line-height:1.55;color:var(--mut);margin-top:22px;max-width:560px}
+  .stage{margin-top:auto;display:flex;gap:26px;align-items:flex-end}
+  /* glass proposal */
+  .glass{width:560px;background:linear-gradient(160deg,rgba(255,255,255,.10),rgba(255,255,255,.03));
+    border:1px solid rgba(255,255,255,.18);border-radius:24px;padding:26px 28px;backdrop-filter:blur(28px);
+    box-shadow:0 30px 70px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.22)}
+  .gtop{display:flex;justify-content:space-between;align-items:center}
+  .sealed{display:inline-flex;gap:9px;align-items:center;font-family:var(--mono);font-size:12px;letter-spacing:.06em;
+    color:var(--gold);background:rgba(255,210,122,.10);border:1px solid rgba(255,210,122,.34);border-radius:999px;padding:7px 14px}
+  .sealed .d{width:7px;height:7px;border-radius:50%;background:var(--gold);box-shadow:0 0 10px var(--gold)}
+  .pid{font-family:var(--mono);font-size:12px;color:var(--mut)}
+  .ttl{font-family:var(--disp);font-weight:400;font-size:30px;margin-top:18px;letter-spacing:-.01em}
+  .meta{font-size:14px;color:var(--mut);margin-top:8px}
+  .meta b{color:var(--teal);font-weight:600}
+  .cta{display:flex;gap:12px;margin-top:24px}
+  .btn{flex:1;text-align:center;font-weight:600;font-size:15px;color:#0A0712;padding:15px;border-radius:14px;
+    background:linear-gradient(100deg,var(--violet),var(--teal));box-shadow:0 14px 34px rgba(99,108,255,.4)}
+  .ghost{font-size:14px;color:var(--ink);padding:15px 20px;border-radius:14px;border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.05)}
+  /* countdown ring */
+  .ring{width:184px;height:184px;position:relative;flex:0 0 auto}
+  .ring .lab{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+  .ring .t{font-family:var(--mono);font-size:30px;color:var(--ink);letter-spacing:.02em}
+  .ring .c{font-family:var(--mono);font-size:10px;letter-spacing:.26em;text-transform:uppercase;color:var(--mut);margin-top:4px}
+  /* agent terminal hint */
+  .term{position:absolute;right:64px;top:140px;width:330px;font-family:var(--mono);font-size:11px;line-height:1.85;color:var(--mut);
+    background:rgba(8,8,16,.45);border:1px solid rgba(255,255,255,.10);border-radius:14px;padding:16px 18px;backdrop-filter:blur(10px)}
+  .term .h{color:var(--teal);letter-spacing:.16em;text-transform:uppercase;font-size:9.5px;margin-bottom:8px}
+  .term .g{color:var(--gold)} .term .v{color:#9be8d8}
+</style>
+</head>
+<body>
+  <div class="aur a1"></div><div class="aur a2"></div><div class="aur a3"></div>
+  <div class="scrim"></div><div class="grain"></div>
+  <div class="wrap">
+    <div class="nav">
+      <div class="brand">Shadow<i>Kit</i> · AgentBoard</div>
+      <div class="r"><span class="live"></span>Live on Stellar · Testnet</div>
+    </div>
+    <div class="hero">
+      <div class="ey">Direction A — Aurora Veil</div>
+      <h1>The vote is<br><b>sealed in light.</b></h1>
+      <p class="sub">Private by proof. Hidden until the deadline. Then an autonomous agent executes — and the result breaks through.</p>
+    </div>
+
+    <div class="term">
+      <div class="h">⊹ agent · reasoning</div>
+      <div>&gt; tally revealed — <span class="g">quorum met</span></div>
+      <div>&gt; cap <span class="v">15,000 USDC</span> · route best-of-3</div>
+      <div>&gt; signing w/ session key…</div>
+      <div>&gt; <span class="v">swap executed</span> ✓ tx 7f3a…b1</div>
+    </div>
+
+    <div class="stage">
+      <div class="glass">
+        <div class="gtop"><span class="sealed"><span class="d"></span>SEALED · RESULTS HIDDEN</span><span class="pid">#PRO-014</span></div>
+        <div class="ttl">Swap 15,000 USDC → XLM</div>
+        <div class="meta">No running tally · <b>12 votes cast</b> · weight hidden</div>
+        <div class="cta"><div class="btn">Cast private vote</div><div class="ghost">Proof details</div></div>
+      </div>
+      <div class="ring">
+        <svg width="184" height="184" viewBox="0 0 184 184">
+          <defs><linearGradient id="rg" x1="0" y1="0" x2="184" y2="184">
+            <stop stop-color="#8B6CFF"/><stop offset=".6" stop-color="#2FE3C6"/><stop offset="1" stop-color="#FFD27A"/>
+          </linearGradient></defs>
+          <circle cx="92" cy="92" r="82" fill="none" stroke="rgba(255,255,255,.10)" stroke-width="8"/>
+          <circle cx="92" cy="92" r="82" fill="none" stroke="url(#rg)" stroke-width="8" stroke-linecap="round"
+            stroke-dasharray="515" stroke-dashoffset="190" transform="rotate(-90 92 92)"/>
+        </svg>
+        <div class="lab"><div class="t">02:14:09</div><div class="c">until reveal</div></div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

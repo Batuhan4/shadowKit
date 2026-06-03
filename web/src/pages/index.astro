@@ -17,6 +17,27 @@ const contracts = [
   { label: "Groth16 Verifier", id: CONFIG.verifierId },
   { label: "AgentPolicy", id: CONFIG.agentPolicyId },
 ];
+
+// the four published packages a developer installs to build with ShadowKit.
+const packages = [
+  "@shadowkit/zk-prover",
+  "@shadowkit/snapshot-tool",
+  "@shadowkit/tally-reveal",
+  "@shadowkit/shared",
+];
+// a representative slice of the real SDK API (matches @shadowkit/zk-prover generateVoteProof).
+const snippet = `import { generateVoteProof } from "@shadowkit/zk-prover";
+
+// one call → a REAL Groth16 proof + a timelock-sealed ballot
+const { proof, publicSignals, sealedCiphertext } =
+  await generateVoteProof(voteInput, { wasmPath, zkeyPath }, deadline);
+
+// cast on YOUR GovVault — identity, weight & direction stay private
+await govVault.cast_vote({
+  id, proof,
+  pub_signals: publicSignals,
+  sealed_ciphertext: sealedCiphertext,
+});`;
 ---
 <Layout>
   <!-- HERO -->
@@ -80,6 +101,30 @@ const contracts = [
     </div>
   </section>
 
+  <!-- BUILD WITH IT (SDK) -->
+  <section class="section wrap sdk">
+    <div class="sdk-copy">
+      <p class="eyebrow">Build with it · TypeScript SDK</p>
+      <h2 class="sdk-h">Not a one-off demo —<br />a <span class="lit">drop-in SDK</span> for your app.</h2>
+      <p class="muted sdk-lede">
+        ShadowKit is four ESM packages plus deployed Soroban contracts. Generate a real sealed
+        zero-knowledge ballot, timelock the tally, and let a policy-bounded agent execute the result —
+        from your own code, in the browser or a Cloudflare Worker.
+      </p>
+      <ul class="sdk-pkgs">
+        {packages.map((p) => <li class="tag">{p}</li>)}
+      </ul>
+      <div class="sdk-cta">
+        <a class="btn btn-primary" href="/docs">Read the docs →</a>
+        <a class="btn btn-ghost" href="/docs/packages">SDK reference</a>
+      </div>
+    </div>
+    <figure class="sdk-code">
+      <figcaption class="mono"><span class="dot"></span><span class="dot"></span><span class="dot"></span> your-app.ts</figcaption>
+      <pre class="code mono">{snippet}</pre>
+    </figure>
+  </section>
+
   <!-- PROOF -->
   <section class="section wrap proof">
     <div>
@@ -120,6 +165,18 @@ const contracts = [
   .demo p { margin: 0; flex: 1; }
   .demo .go { font-size: 0.82rem; color: var(--lime); }
 
+  /* SDK / build-with-it */
+  .sdk { display: grid; grid-template-columns: 0.95fr 1.05fr; gap: clamp(1.6rem, 4vw, 3.2rem); align-items: center; }
+  .sdk-h { font-size: clamp(1.6rem, 2.8vw, 2.5rem); line-height: 1.04; }
+  .sdk-lede { margin: 1.1rem 0 1.4rem; max-width: 46ch; }
+  .sdk-pkgs { list-style: none; display: flex; flex-wrap: wrap; gap: 0.5rem; padding: 0; margin: 0 0 1.8rem; }
+  .sdk-pkgs .tag { font-size: 0.72rem; }
+  .sdk-cta { display: flex; gap: 0.8rem; flex-wrap: wrap; }
+  .sdk-code { margin: 0; border: 1px solid var(--line); border-radius: var(--radius-lg); overflow: hidden; background: var(--bg-2); }
+  .sdk-code figcaption { display: flex; align-items: center; gap: 0.45rem; padding: 0.7rem 1rem; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 0.74rem; }
+  .sdk-code figcaption .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--line-2); }
+  .sdk-code .code { margin: 0; padding: clamp(1rem, 2vw, 1.5rem); font-size: clamp(0.72rem, 1.05vw, 0.84rem); line-height: 1.7; color: var(--text-2); overflow-x: auto; white-space: pre; tab-size: 2; }
+
   .proof { display: grid; grid-template-columns: 1.3fr 1fr; gap: clamp(1.5rem, 4vw, 3rem); align-items: center; }
   .proof-h { font-size: clamp(1.5rem, 2.5vw, 2.3rem); }
   .proof-list { list-style: none; margin: 0; padding: 0; }
@@ -134,5 +191,6 @@ const contracts = [
     .hero-grid { grid-template-columns: 1fr; gap: 2.2rem; }
     .hero-aset { max-width: 420px; }
   }
+  @media (max-width: 880px) { .sdk { grid-template-columns: 1fr; gap: 2rem; } }
   @media (max-width: 720px) { .demos, .proof { grid-template-columns: 1fr; } }
 </style>

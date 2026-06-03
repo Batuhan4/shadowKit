@@ -1,0 +1,155 @@
+---
+title: Integrate ShadowKit
+description: "Drop private sealed voting + a bounded execution agent into your own Stellar app — install, point at the contracts, and ship. A practical adoption guide."
+---
+
+import { Aside, Steps } from "@astrojs/starlight/components";
+import { CONFIG, explorerContract, short } from "../../../lib/config.ts";
+
+<p class="eyebrow">Guide · adoption</p>
+
+ShadowKit is a **drop-in SDK**: four ESM packages plus a set of Soroban contracts. You can use the
+live testnet contracts as-is, or deploy your own. This page is the shortest path from `npm install`
+to a working private vote in *your* application — browser, Node, or a Cloudflare Worker.
+
+<Aside type="tip" title="Already running">
+Every snippet here mirrors the live demos. `GovVault` is deployed at <a href={explorerContract(CONFIG.govVaultId)} target="_blank" rel="noopener">{short(CONFIG.govVaultId)}</a> and the Groth16 verifier at <a href={explorerContract(CONFIG.verifierId)} target="_blank" rel="noopener">{short(CONFIG.verifierId)}</a> on Stellar testnet.
+</Aside>
+
+## 1 · Install
+
+```bash title="terminal"
+npm install @shadowkit/zk-prover @shadowkit/snapshot-tool \
+  @shadowkit/tally-reveal @shadowkit/shared
+```
+
+You also need the circuit artifacts (`vote.wasm`, `vote_final.zkey`, `poseidon3.wasm`) and the
+verification key. Serve them as static assets (the demo serves them from `/zk/*`) so the prover can
+fetch them in the browser, or read them from disk in Node.
+
+## 2 · Point at the contracts
+
+You have two choices:
+
+<Steps>
+
+1. **Reuse the deployed testnet contracts** — copy the IDs below into your config and skip deployment.
+   Good for prototyping and demos.
+
+2. **Deploy your own** — `git clone` the repo, then `just deploy-testnet` (wraps `scripts/deploy-demo.sh`).
+   It builds the wasm, deploys `Groth16Verifier` → `GovVault` → `AgentPolicy` → `FallbackAMM`, registers
+   your snapshot root, and writes every ID to `.env.demo.testnet`. Required for production / mainnet.
+
+</Steps>
+
+```ts title="config.ts"
+export const CONFIG = {
+  rpcUrl: "https://soroban-testnet.stellar.org",
+  networkPassphrase: "Test SDF Network ; September 2015",
+  govVaultId: "<GovVault C... id>",
+  verifierId: "<Groth16Verifier C... id>",
+  agentPolicyId: "<AgentPolicy C... id>",
+  merkleRoot: "<snapshot root, 32-byte hex>",   // must equal the root registered on GovVault.init
+};
+```
+
+## 3 · Build your eligibility snapshot
+
+Your voter set is a Poseidon Merkle tree over BLS12-381 (depth 20, matching the circuit). The root is
+registered once on `GovVault.init`; each member keeps a secret + their Merkle path.
+
+```ts
+import { buildSnapshot } from "@shadowkit/snapshot-tool";
+
+const snapshot = await buildSnapshot(holders);   // [{ secret, weight, direction }]
+// snapshot.rootBe32Hex  → register on GovVault.init(...)
+// snapshot.members[i]    → { secret, weight, direction, merklePath, pathIndices }
+```
+
+<Aside type="caution" title="The root must match">
+The `merkleRoot` in your config, the root on `GovVault`, and the root your proofs prove membership in
+must be the **same** value. A mismatch makes `cast_vote` reject the proof (stale-root guard).
+</Aside>
+
+## 4 · Prove + seal a vote (client side)
+
+One call produces a real Groth16 proof **and** the tlock-sealed ballot. The witness — identity, weight,
+direction — never leaves the client.
+
+```ts
+import { generateVoteProof } from "@shadowkit/zk-prover";
+
+const { proof, publicSignals, sealedCiphertext } = await generateVoteProof(
+  { ...member, merkleRoot, proposalId, sealKey },
+  { wasmPath: "/zk/vote.wasm", zkeyPath: "/zk/vote_final.zkey" },
+  deadline,                                        // unix seconds → tlock drand round
+);
+```
+
+`publicSignals` are the four field elements in the **on-chain binding order**
+`[merkleRoot, nullifier, proposalId, sealedCommitmentHash]`.
+
+## 5 · Cast on-chain
+
+Marshal the proof to the verifier's byte layout and submit `cast_vote`. The voter's wallet is the
+transaction source; it pays the fee but reveals nothing about the ballot.
+
+```ts
+const op = govVault.call(
+  "cast_vote",
+  nativeToScVal(proposalId, { type: "u32" }),
+  proofScVal(proof),                 // Proof { a: BytesN<96>, b: BytesN<192>, c: BytesN<96> }
+  pubSignalsScVal(publicSignals),    // Vec<Fr>  ← see the gotcha below
+  sealedVoteScVal(sealedCiphertext), // SealedVote { ciphertext, round, sealed_commitment_hash }
+);
+```
+
+<Aside type="danger" title="pub_signals MUST be ScVal::U256, not Bytes">
+The verifier's `pub_signals: Vec<Fr>` are field scalars. Encode each one as **`ScVal::U256`**
+(the decimal field value). If you encode them as `ScVal::Bytes` they still *deserialize* into an `Fr`
+at the ABI boundary — but feeding that `Fr` into the on-chain BLS `g1_mul` **traps** the host
+(`VM call trapped: UnreachableCodeReached`) instead of returning a clean verify result. We hit this
+exact bug; it was confirmed on testnet (`U256` → verify true, `Bytes` → trap).
+
+```ts
+// ✅ correct
+xdr.ScVal.scvVec(decimalSignals.map((d) => nativeToScVal(BigInt(d), { type: "u256" })));
+// ❌ traps the BLS host inside verify
+xdr.ScVal.scvVec(decimalSignals.map((d) => xdr.ScVal.scvBytes(be32(d))));
+```
+</Aside>
+
+While the proposal is open, `votes_cast` increments but `weighted_yes/no` stay `null` — the tally is
+cryptographically unknowable until the drand round releases.
+
+## 6 · Close & reveal
+
+After the deadline, decrypt every sealed ballot and re-aggregate on-chain. The contract recomputes the
+tally from the decrypted votes, so no one ever had to trust an off-chain count.
+
+```ts
+import { buildRevealArgs } from "@shadowkit/tally-reveal";
+
+const args = await buildRevealArgs(sealedVotes);   // tlock-decrypt each ballot
+await govVault.call("close_and_reveal", /* id, weighted_yes, weighted_no, decryptions */);
+// → status becomes Approved | Rejected
+```
+
+## 7 · Bound the execution agent (optional)
+
+On approval, a policy-gated agent can carry out the result. `AgentPolicy` is a smart-account policy the
+agent **cannot** break: it caps the amount, pins the asset pair, and enforces single-shot execution via
+`mark_executed`. Wire your own LLM/planner behind it — the on-chain policy is the trust boundary, not the model.
+
+See [Agent](/docs/agent) for the full policy gate and the AgentBoard demo.
+
+## Production checklist
+
+- [ ] Deploy your **own** contracts (don't ship against the shared testnet IDs).
+- [ ] Register your real snapshot root on `GovVault.init`; keep secrets client-side only.
+- [ ] Serve the circuit artifacts with long-cache headers; verify their hashes match your trusted setup.
+- [ ] Encode `pub_signals` as `ScVal::U256` (see the gotcha in step 5).
+- [ ] Test the full **propose → cast → close → reveal** loop on testnet before mainnet.
+- [ ] Review [Architecture](/docs/architecture) and [Contracts](/docs/contracts) for the policy + error model.
+
+Next: the complete lifecycle with every real call is in the [Sealed-voting flow](/docs/sealed-voting-flow) guide.

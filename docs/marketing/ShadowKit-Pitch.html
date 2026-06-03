@@ -1,0 +1,433 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ShadowKit — Build On Stellar Hackathon Pitch</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Oswald:wght@500;600;700&family=PT+Serif:ital,wght@0,400;0,700;1,400;1,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  /* ============ Build On Stellar — pitch template palette ============ */
+  :root{
+    --paper:#e7e3d9;        /* warm concrete / recycled paper */
+    --paper-edge:#d8d3c6;
+    --gold:#e5a828;         /* hazard amber */
+    --gold-deep:#d39a1f;
+    --ink:#1b1b18;          /* near-black, warm */
+    --ink-soft:#34332e;
+    --muted:#5f5d54;
+    --card:#f1eee6;
+    --display:"Anton","Arial Narrow",sans-serif;
+    --label:"Oswald","Arial Narrow",sans-serif;
+    --serif:"PT Serif",Georgia,"Times New Roman",serif;
+    --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;}
+  body{
+    background:#bdb7a9;
+    font-family:var(--serif);
+    color:var(--ink);
+    overflow:hidden;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* ============ stage / 16:9 canvas that scales to viewport ============ */
+  #stage{position:fixed;inset:0;display:grid;place-items:center;}
+  #canvas{
+    position:relative;
+    width:1280px;height:720px;
+    background:
+      radial-gradient(120% 120% at 50% -20%, #efece4 0%, var(--paper) 42%, var(--paper-edge) 100%);
+    overflow:hidden;
+    transform-origin:center center;
+    box-shadow:0 30px 80px rgba(0,0,0,.45), 0 2px 0 rgba(255,255,255,.4) inset;
+  }
+  /* paper grain */
+  .grain{
+    position:absolute;inset:0;pointer-events:none;z-index:60;
+    mix-blend-mode:multiply;opacity:.14;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  /* top progress */
+  .progress{position:absolute;top:0;left:0;right:0;height:5px;background:rgba(27,27,24,.10);z-index:70;}
+  .progress i{display:block;height:100%;width:0;background:var(--gold);transition:width .35s cubic-bezier(.4,0,.2,1);}
+
+  /* ============ slides ============ */
+  .slide{
+    position:absolute;inset:0;
+    padding:62px 74px 58px;
+    opacity:0;visibility:hidden;
+    transition:opacity .4s ease;
+    z-index:1;
+  }
+  .slide.active{opacity:1;visibility:visible;z-index:2;}
+
+  /* section header bar (gold block) */
+  .hbar{
+    display:inline-block;background:var(--gold);color:var(--ink);
+    font-family:var(--display);text-transform:uppercase;
+    font-size:62px;line-height:.96;letter-spacing:.5px;
+    padding:14px 26px 18px;
+    box-shadow:5px 6px 0 rgba(27,27,24,.12);
+  }
+  .hbar.two{font-size:50px;}
+  .lead{
+    font-family:var(--serif);font-size:29px;line-height:1.28;
+    margin:30px 0 6px;max-width:70%;color:var(--ink);
+  }
+  .lead b{color:var(--ink);} .lead .g{color:var(--gold-deep);font-weight:700;}
+
+  /* diamond bullets */
+  ul.blist{list-style:none;margin:18px 0 0;padding:0;max-width:80%;}
+  ul.blist li{
+    position:relative;padding-left:34px;margin:16px 0;
+    font-family:var(--serif);font-style:italic;font-size:21px;line-height:1.34;color:var(--ink-soft);
+  }
+  ul.blist li::before{
+    content:"";position:absolute;left:2px;top:9px;width:12px;height:12px;
+    background:var(--gold);transform:rotate(45deg);
+    box-shadow:1px 1px 0 rgba(27,27,24,.25);
+  }
+  ul.blist li b{font-style:normal;font-weight:700;color:var(--ink);}
+
+  /* Think box */
+  .think{display:flex;align-items:center;gap:20px;margin-top:34px;max-width:82%;}
+  .think .tag{
+    flex:none;background:var(--ink);color:var(--gold);
+    font-family:var(--label);font-weight:700;font-size:14px;letter-spacing:2.5px;
+    text-transform:uppercase;padding:9px 15px;
+  }
+  .think .txt{font-family:var(--serif);font-style:italic;font-size:20px;line-height:1.32;color:var(--muted);}
+  .think .txt b{font-style:normal;color:var(--ink-soft);font-weight:700;}
+
+  /* footer mark (content slides) */
+  .foot{position:absolute;right:54px;bottom:34px;display:flex;align-items:center;gap:11px;z-index:5;}
+  .foot .dmark{width:26px;height:26px;background:var(--ink);transform:rotate(45deg);}
+  .foot .ftxt b{display:block;font-family:var(--display);font-size:15px;letter-spacing:.4px;line-height:1;color:var(--ink);}
+  .foot .ftxt span{display:block;font-family:var(--label);font-weight:600;font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-top:2px;}
+  .pgnum{position:absolute;left:74px;bottom:36px;font-family:var(--label);font-weight:600;font-size:13px;letter-spacing:2px;color:var(--muted);z-index:5;}
+
+  /* ============ TITLE SLIDE ============ */
+  .title-slide{padding:50px 74px;}
+  .cobrand{display:flex;align-items:center;justify-content:center;gap:26px;margin-bottom:6px;}
+  .cobrand .unit{display:flex;align-items:center;gap:11px;font-family:var(--label);font-weight:700;font-size:21px;color:var(--ink);letter-spacing:.3px;}
+  .cobrand .divider{width:1px;height:30px;background:rgba(27,27,24,.35);}
+  .cobrand svg{display:block;}
+  .hero{position:absolute;left:74px;top:200px;}
+  .hero .t1{font-family:var(--display);font-size:150px;line-height:.84;letter-spacing:1px;color:var(--ink);}
+  .hero .t2{font-family:var(--display);font-size:92px;line-height:.92;letter-spacing:.5px;color:var(--gold);margin-top:2px;}
+  .hero .sub{font-family:var(--serif);font-size:27px;line-height:1.34;margin-top:26px;max-width:560px;color:var(--ink-soft);}
+  .hero .sub .g{color:var(--gold-deep);font-weight:700;}
+  .chips{display:inline-flex;border:2px solid var(--ink);margin-top:30px;background:rgba(241,238,230,.5);}
+  .chips .chip{padding:13px 22px;font-family:var(--label);font-weight:700;font-size:17px;letter-spacing:1.2px;text-transform:uppercase;border-right:2px solid var(--ink);color:var(--ink);}
+  .chips .chip:last-child{border-right:0;}
+
+  /* hazard sign */
+  .hazard{position:absolute;right:96px;top:150px;width:330px;text-align:center;}
+  .hazard .dia{
+    width:208px;height:208px;margin:0 auto;background:var(--gold);
+    transform:rotate(45deg);display:grid;place-items:center;
+    box-shadow:6px 8px 0 rgba(27,27,24,.14);
+  }
+  .hazard .dia span{transform:rotate(-45deg);font-family:var(--display);font-size:46px;letter-spacing:1px;color:var(--ink);}
+  .hazard .warn{
+    border:2px solid var(--ink);margin-top:26px;padding:13px 10px;background:rgba(241,238,230,.5);
+    font-family:var(--label);font-weight:700;letter-spacing:1.5px;font-size:15px;line-height:1.7;
+  }
+  .hazard .warn .a{color:var(--ink);} .hazard .warn .b{color:var(--gold-deep);}
+
+  .title-foot{position:absolute;left:74px;right:74px;bottom:34px;display:flex;justify-content:space-between;align-items:flex-end;}
+  .title-foot .l{font-family:var(--label);font-weight:700;font-size:15px;letter-spacing:1px;color:var(--ink);}
+  .title-foot .r{font-family:var(--mono);font-size:12px;color:var(--muted);font-style:normal;letter-spacing:.5px;}
+
+  /* ============ TECHNICAL WORKFLOW — step flow ============ */
+  .flow{display:flex;gap:0;margin-top:26px;max-width:100%;}
+  .step{flex:1;padding-right:22px;position:relative;}
+  .step:not(:last-child)::after{content:"";position:absolute;right:11px;top:7px;width:14px;height:14px;border-right:3px solid var(--gold);border-top:3px solid var(--gold);transform:rotate(45deg);}
+  .step .num{display:flex;align-items:center;gap:9px;margin-bottom:9px;}
+  .step .num .d{width:13px;height:13px;background:var(--gold);transform:rotate(45deg);}
+  .step .num h4{font-family:var(--display);font-size:27px;letter-spacing:.5px;color:var(--ink);margin:0;text-transform:uppercase;}
+  .step p{font-family:var(--serif);font-size:16px;line-height:1.34;color:var(--ink-soft);margin:0;}
+  .step p b{font-weight:700;color:var(--ink);}
+  .stackline{margin-top:30px;display:flex;flex-wrap:wrap;gap:8px;max-width:88%;}
+  .stackline .s{font-family:var(--mono);font-size:13px;padding:6px 11px;background:rgba(27,27,24,.06);border:1px solid rgba(27,27,24,.18);color:var(--ink-soft);}
+
+  /* ============ TEAM ============ */
+  .team{display:flex;gap:24px;margin-top:30px;flex-wrap:wrap;}
+  .member{width:330px;background:var(--card);border:2px solid var(--ink);box-shadow:5px 6px 0 rgba(27,27,24,.12);padding:22px 24px;display:flex;gap:18px;align-items:flex-start;}
+  .member .ava{flex:none;width:64px;height:64px;background:var(--gold);transform:rotate(45deg);display:grid;place-items:center;}
+  .member .ava span{transform:rotate(-45deg);font-family:var(--display);font-size:30px;color:var(--ink);}
+  .member h3{margin:0 0 3px;font-family:var(--display);font-size:25px;letter-spacing:.5px;color:var(--ink);}
+  .member .role{font-family:var(--label);font-weight:600;font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:var(--gold-deep);margin-bottom:8px;}
+  .member p{margin:0;font-family:var(--serif);font-size:15px;line-height:1.32;color:var(--ink-soft);}
+  .member.ghost{background:repeating-linear-gradient(45deg,rgba(27,27,24,.03) 0 8px,transparent 8px 16px);border-style:dashed;align-items:center;justify-content:center;color:var(--muted);}
+  .member.ghost .add{font-family:var(--label);font-weight:600;font-size:13px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);text-align:center;}
+
+  /* ============ LIVE / proof ============ */
+  .proofgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px 26px;margin-top:24px;max-width:90%;}
+  .proof{border-left:4px solid var(--gold);padding:6px 0 6px 16px;}
+  .proof .k{font-family:var(--label);font-weight:600;font-size:12px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);}
+  .proof .v{font-family:var(--mono);font-size:15px;color:var(--ink);word-break:break-all;margin-top:3px;}
+  .bigtag{margin-top:32px;font-family:var(--display);font-size:50px;line-height:.98;letter-spacing:.5px;color:var(--ink);}
+  .bigtag .g{color:var(--gold);}
+
+  /* ============ fixed nav chrome ============ */
+  #nav{position:fixed;left:0;right:0;bottom:18px;display:flex;align-items:center;justify-content:center;gap:16px;z-index:100;font-family:var(--label);}
+  #nav button{cursor:pointer;border:none;background:rgba(27,27,24,.78);color:#f1eee6;width:38px;height:38px;border-radius:50%;font-size:18px;line-height:1;display:grid;place-items:center;transition:background .2s;}
+  #nav button:hover{background:var(--gold);color:var(--ink);}
+  #dots{display:flex;gap:9px;}
+  #dots i{width:9px;height:9px;background:rgba(27,27,24,.3);transform:rotate(45deg);cursor:pointer;transition:all .2s;}
+  #dots i.on{background:var(--gold);box-shadow:0 0 0 3px rgba(229,168,40,.25);}
+  #counter{font-weight:700;font-size:14px;letter-spacing:2px;color:#2c2b27;background:rgba(241,238,230,.85);padding:7px 13px;border-radius:20px;}
+  .hint{position:fixed;top:13px;left:50%;transform:translateX(-50%);font-family:var(--label);font-weight:600;font-size:11px;letter-spacing:1.5px;color:rgba(27,27,24,.45);z-index:100;text-transform:uppercase;pointer-events:none;transition:opacity .4s;}
+  .hint.hide{opacity:0;}
+
+  /* ============ print → PDF ============ */
+  @media print{
+    @page{size:1280px 720px;margin:0;}
+    body{background:#fff;overflow:visible;}
+    #stage{position:static;display:block;}
+    #canvas{transform:none!important;box-shadow:none;width:1280px;height:auto;}
+    .slide{position:relative;display:block;opacity:1;visibility:visible;break-after:page;page-break-after:always;height:720px;}
+    .grain{position:absolute;}
+    #nav,.hint,.progress{display:none!important;}
+  }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="canvas">
+    <div class="grain"></div>
+    <div class="progress"><i id="bar"></i></div>
+
+    <!-- ░░░░░░░░ 1 · TITLE ░░░░░░░░ -->
+    <section class="slide title-slide active">
+      <div class="cobrand">
+        <div class="unit">
+          <svg width="26" height="26" viewBox="0 0 32 32" aria-hidden="true"><path d="M7 4v24" stroke="#1b1b18" stroke-width="3" stroke-linecap="round"/><path d="M9 5h16l-4 5 4 5H9z" fill="#1b1b18"/></svg>
+          Rise in
+        </div>
+        <div class="divider"></div>
+        <div class="unit">
+          <svg width="30" height="30" viewBox="0 0 32 32" aria-hidden="true"><path d="M4 21c8 5 16-9 24-4" stroke="#1b1b18" stroke-width="2.6" fill="none" stroke-linecap="round"/><path d="M4 15c8-5 16 9 24 4" stroke="#1b1b18" stroke-width="2.6" fill="none" stroke-linecap="round"/></svg>
+          Stellar
+        </div>
+      </div>
+
+      <div class="hero">
+        <div class="t1">SHADOWKIT</div>
+        <div class="t2">ZK&nbsp;+&nbsp;AI&nbsp;GOVERNANCE</div>
+        <div class="sub">DAOs shouldn’t choose between privacy and autonomy.<br/>Vote in the shadows. <span class="g">Execute in the light.</span></div>
+        <div class="chips">
+          <div class="chip">Stellar Testnet</div>
+          <div class="chip">ZK + AI Agent</div>
+          <div class="chip">Live Now</div>
+        </div>
+      </div>
+
+      <div class="hazard">
+        <div class="dia"><span>SEALED</span></div>
+        <div class="warn">
+          <div class="a">NO WHALE · NO PEEK</div>
+          <div class="b">NO QUORUM · NO EXEC</div>
+        </div>
+      </div>
+
+      <div class="title-foot">
+        <div class="l">SHADOWKIT · 2026</div>
+        <div class="r">Build On Stellar Hackathon · IBW 2026 · Stellar testnet</div>
+      </div>
+    </section>
+
+    <!-- ░░░░░░░░ 2 · THE SOLUTION ░░░░░░░░ -->
+    <section class="slide content">
+      <div class="hbar">The Solution</div>
+      <div class="lead">ShadowKit lets a DAO <b>vote in the shadows and execute in the light.</b></div>
+      <ul class="blist">
+        <li>Members vote with <b>zero-knowledge proofs</b> — who voted, how much weight they hold, and which way they voted all stay private.</li>
+        <li>The running tally is <b>timelock-sealed until close</b>, so whales can’t watch the result and swing it at the last second.</li>
+        <li>An <b>LLM-bounded AI agent</b> then executes the approved action on-chain — inside a policy it <b>mathematically cannot break.</b></li>
+      </ul>
+      <div class="think">
+        <div class="tag">Think</div>
+        <div class="txt">It’s <b>infrastructure, not a one-off</b> — an SDK + Soroban contracts any Stellar DAO drops in for private voting and bounded agent execution.</div>
+      </div>
+      <div class="pgnum">02</div>
+      <div class="foot"><div class="dmark"></div><div class="ftxt"><b>BUILD ON STELLAR</b><span>Hackathon · 2026</span></div></div>
+    </section>
+
+    <!-- ░░░░░░░░ 3 · PMF ░░░░░░░░ -->
+    <section class="slide content">
+      <div class="hbar">PMF</div>
+      <div class="lead">Web3 governance is broken in <b>two ways at once.</b></div>
+      <ul class="blist">
+        <li><b>Public votes invite manipulation.</b> Whales and analytics firms watch the live tally, vote last, and swing outcomes — while small holders self-censor.</li>
+        <li><b>“Let an AI run the treasury” is terrifying.</b> A hallucinating agent with signing power can move real funds, so DAOs stay stuck with slow, manual multisig.</li>
+        <li>DAO treasuries hold <b>billions on-chain</b>, yet their decisions are neither truly private nor safely autonomous.</li>
+      </ul>
+      <div class="think">
+        <div class="tag">Think</div>
+        <div class="txt">Why should anyone care? Because today you must pick <b>private or autonomous.</b> Every DAO managing real money feels this — ShadowKit gives both.</div>
+      </div>
+      <div class="pgnum">03</div>
+      <div class="foot"><div class="dmark"></div><div class="ftxt"><b>BUILD ON STELLAR</b><span>Hackathon · 2026</span></div></div>
+    </section>
+
+    <!-- ░░░░░░░░ 4 · TECHNICAL WORKFLOW ░░░░░░░░ -->
+    <section class="slide content">
+      <div class="hbar two">Technical Workflow</div>
+      <div class="lead">One sealed-vote-to-execution loop — <b>every step live on Stellar testnet.</b></div>
+      <div class="flow">
+        <div class="step">
+          <div class="num"><span class="d"></span><h4>Vote</h4></div>
+          <p>snarkjs builds a real <b>Groth16 proof in your browser</b> (BLS12-381). Identity, weight &amp; direction stay hidden.</p>
+        </div>
+        <div class="step">
+          <div class="num"><span class="d"></span><h4>Seal</h4></div>
+          <p>Each vote is <b>timelock-encrypted</b> to a future drand round. On-chain, the tally reads back <b>null.</b></p>
+        </div>
+        <div class="step">
+          <div class="num"><span class="d"></span><h4>Reveal</h4></div>
+          <p>At the deadline the drand beacon drops; <b>close_and_reveal</b> aggregates the weighted tally on-chain → <b>Approved.</b></p>
+        </div>
+        <div class="step">
+          <div class="num"><span class="d"></span><h4>Execute</h4></div>
+          <p>Agent pays for data over <b>x402</b> → <b>Gemini</b> plans → on-chain <b>AgentPolicy</b> allows only the capped, approved swap → <b>Executed.</b></p>
+        </div>
+      </div>
+      <div class="stackline">
+        <span class="s">Circom + snarkjs</span><span class="s">Soroban / Rust</span><span class="s">BLS12-381</span><span class="s">drand / tlock</span><span class="s">OZ Smart Accounts</span><span class="s">Gemini</span><span class="s">x402</span>
+      </div>
+      <div class="think">
+        <div class="tag">Think</div>
+        <div class="txt">How does it work — and why will it win? The <b>chain itself</b>, not a human, enforces both the privacy and the agent’s spending limits.</div>
+      </div>
+      <div class="pgnum">04</div>
+      <div class="foot"><div class="dmark"></div><div class="ftxt"><b>BUILD ON STELLAR</b><span>Hackathon · 2026</span></div></div>
+    </section>
+
+    <!-- ░░░░░░░░ 5 · THE TEAM ░░░░░░░░ -->
+    <section class="slide content">
+      <div class="hbar">The Team</div>
+      <div class="lead">Built end-to-end for <b>Build On Stellar — IBW 2026.</b></div>
+      <div class="team">
+        <div class="member">
+          <div class="ava"><span>B</span></div>
+          <div>
+            <h3>Batuhan</h3>
+            <div class="role">Co-founder · Engineering &amp; Protocol</div>
+            <p>Soroban contracts, Circom ZK circuit, the AI agent middleware, and the live Astro web app — the whole stack, shipped.</p>
+          </div>
+        </div>
+        <div class="member">
+          <div class="ava"><span>N</span></div>
+          <div>
+            <h3>Nehirnaz Tunca</h3>
+            <div class="role">Co-founder · Design &amp; Marketing</div>
+            <p>Brand, product design, and the pitch &amp; go-to-market story behind ShadowKit.</p>
+          </div>
+        </div>
+      </div>
+      <div class="think">
+        <div class="tag">Think</div>
+        <div class="txt">Why are we the right people? A two-person team that shipped <b>5 contracts, a circuit, an agent, and a live site</b> — and it works on testnet today.</div>
+      </div>
+      <div class="pgnum">05</div>
+      <div class="foot"><div class="dmark"></div><div class="ftxt"><b>BUILD ON STELLAR</b><span>Hackathon · 2026</span></div></div>
+    </section>
+
+    <!-- ░░░░░░░░ 6 · LIVE ON TESTNET (bonus close) ░░░░░░░░ -->
+    <section class="slide content">
+      <div class="hbar two">Live On Testnet</div>
+      <div class="lead"><b>No mocks. No replay.</b> Real proofs, real drand beacons, real on-chain swaps — all verifiable on Stellar Explorer.</div>
+      <div class="proofgrid">
+        <div class="proof"><div class="k">Live site</div><div class="v">shadowkit.nexvar.io</div></div>
+        <div class="proof"><div class="k">Repo</div><div class="v">github.com/Batuhan4/shadowKit</div></div>
+        <div class="proof"><div class="k">GovVault · on-chain</div><div class="v">CDYNOYGSY3JKLKDC5OWUNVKB3W4YAB7DIKELI7GCSJBFE7TYH3WDWTX5</div></div>
+        <div class="proof"><div class="k">Real agent swap tx</div><div class="v">b73cfa65ac1b708fb2b3ff65bf51cb41191dd67cdc88b53fefe0ad95aa7071c2</div></div>
+      </div>
+      <div class="bigtag">Vote in the shadows.<br/><span class="g">Execute in the light.</span></div>
+      <div class="pgnum">06</div>
+      <div class="foot"><div class="dmark"></div><div class="ftxt"><b>BUILD ON STELLAR</b><span>Hackathon · 2026</span></div></div>
+    </section>
+
+  </div>
+</div>
+
+<div id="nav">
+  <button id="prev" aria-label="Previous">‹</button>
+  <div id="dots"></div>
+  <span id="counter">01 / 06</span>
+  <button id="next" aria-label="Next">›</button>
+</div>
+<div class="hint">← → navigate · F fullscreen</div>
+
+<script>
+(function(){
+  var slides = Array.prototype.slice.call(document.querySelectorAll('.slide'));
+  var canvas = document.getElementById('canvas');
+  var bar = document.getElementById('bar');
+  var counter = document.getElementById('counter');
+  var dotsWrap = document.getElementById('dots');
+  var i = 0, n = slides.length;
+
+  // build dots
+  slides.forEach(function(_, idx){
+    var d = document.createElement('i');
+    d.addEventListener('click', function(){ go(idx); });
+    dotsWrap.appendChild(d);
+  });
+  var dots = Array.prototype.slice.call(dotsWrap.children);
+
+  function pad(x){ return (x<10?'0':'')+x; }
+  function render(){
+    slides.forEach(function(s,idx){ s.classList.toggle('active', idx===i); });
+    dots.forEach(function(d,idx){ d.classList.toggle('on', idx===i); });
+    bar.style.width = ((i+1)/n*100)+'%';
+    counter.textContent = pad(i+1)+' / '+pad(n);
+  }
+  function go(idx){ i = Math.max(0, Math.min(n-1, idx)); render(); }
+  function next(){ go(i+1); }
+  function prev(){ go(i-1); }
+
+  document.getElementById('next').addEventListener('click', next);
+  document.getElementById('prev').addEventListener('click', prev);
+
+  document.addEventListener('keydown', function(e){
+    switch(e.key){
+      case 'ArrowRight': case 'ArrowDown': case ' ': case 'PageDown': case 'l': case 'j': e.preventDefault(); next(); break;
+      case 'ArrowLeft': case 'ArrowUp': case 'PageUp': case 'h': case 'k': e.preventDefault(); prev(); break;
+      case 'Home': go(0); break;
+      case 'End': go(n-1); break;
+      case 'f': case 'F':
+        if(!document.fullscreenElement){ document.documentElement.requestFullscreen && document.documentElement.requestFullscreen(); }
+        else { document.exitFullscreen && document.exitFullscreen(); }
+        break;
+      default:
+        if(e.key>='1' && e.key<='9'){ go(parseInt(e.key,10)-1); }
+    }
+  });
+
+  // scale the 1280x720 canvas to fit the viewport
+  function fit(){
+    var pad = 0;
+    var s = Math.min((window.innerWidth-pad)/1280, (window.innerHeight-pad)/720);
+    canvas.style.transform = 'scale('+s+')';
+  }
+  window.addEventListener('resize', fit);
+  fit();
+  render();
+
+  // auto-hide the keyboard hint after a moment of stillness
+  var hint = document.querySelector('.hint');
+  var hintT;
+  function pokeHint(){ hint.classList.remove('hide'); clearTimeout(hintT); hintT = setTimeout(function(){ hint.classList.add('hide'); }, 3500); }
+  window.addEventListener('mousemove', pokeHint);
+  window.addEventListener('keydown', pokeHint);
+  pokeHint();
+})();
+</script>
+</body>
+</html>

@@ -3,7 +3,7 @@
 > **Vote in the shadows. Execute in the light.**
 > ZK- + AI-powered autonomous DAO governance infrastructure on **Stellar / Soroban**.
 
-🔗 **Live demo:** https://shadowkit.pages.dev — 🛰️ **Network:** Stellar **testnet** · Built for **Build On Stellar — IBW 2026** (Main · Hack Privacy · Hack Agentic)
+🔗 **Live demo:** https://shadowkit.nexvar.io — 🛰️ **Network:** Stellar **testnet** · Built for **Build On Stellar — IBW 2026** (Main · Hack Privacy · Hack Agentic)
 
 ---
 

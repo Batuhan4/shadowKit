@@ -22,6 +22,7 @@ import {
   toOnChainPublicSignals,
   marshalProof,
   fieldToBe32Hex,
+  pubSignalsScVal,
   unsealVote,
   buildRevealFromSealed,
   PUBLIC_SIGNAL_ORDER,
@@ -59,6 +60,21 @@ describe("voteClient — fieldToBe32Hex", () => {
   });
   it("rejects a non-decimal string", () => {
     expect(() => fieldToBe32Hex("0xdead")).toThrow();
+  });
+});
+
+describe("voteClient — pub_signals ScVal encoding (cast_vote regression)", () => {
+  it("encodes each Fr as ScVal::U256, NOT ScVal::Bytes", () => {
+    // REGRESSION (2026-06-03): pub_signals MUST be U256. An Fr built from ScVal::Bytes deserializes
+    // fine at the ABI boundary but TRAPS the on-chain BLS host (g1_mul) inside verify →
+    // 'VM call trapped: UnreachableCodeReached'. Empirically: U256 → verify=true, Bytes → trap.
+    const sv = pubSignalsScVal(["1", snapshot.merkleRoot, "7", "42"]);
+    expect(sv.switch().name).toBe("scvVec");
+    const items = sv.vec()!;
+    expect(items.length).toBe(4);
+    for (const it of items) expect(it.switch().name).toBe("scvU256");
+    // and NONE may be Bytes (the bug).
+    for (const it of items) expect(it.switch().name).not.toBe("scvBytes");
   });
 });
 

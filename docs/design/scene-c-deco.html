@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,500&family=Jost:wght@300;400;500;600&family=Space+Mono&display=swap" rel="stylesheet">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:1440px;height:900px}
+  :root{
+    --emer:#05231C; --emer2:#08301F; --gold:#E7BE77; --gold2:#F4DDA8; --jade:#46C99A; --ivory:#F1E7D2; --mut:#9CB0A2;
+    --disp:'Cormorant Garamond',serif; --body:'Jost','Cantarell',sans-serif; --mono:'Space Mono','Hack',monospace;
+  }
+  body{background:radial-gradient(120% 120% at 50% 0%,#0a3526 0%,var(--emer) 55%,#03190F 100%);color:var(--ivory);
+       font-family:var(--body);overflow:hidden;position:relative;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  /* deco sunburst */
+  .rays{position:absolute;top:-360px;left:50%;transform:translateX(-50%);width:1000px;height:1000px;opacity:.16;pointer-events:none}
+  .frame{position:absolute;inset:26px;border:1.5px solid rgba(231,190,119,.5);pointer-events:none}
+  .frame::before{content:"";position:absolute;inset:7px;border:1px solid rgba(231,190,119,.28)}
+  .cnr{position:absolute;width:30px;height:30px;border:2px solid var(--gold)}
+  .c1{top:34px;left:34px;border-right:0;border-bottom:0}.c2{top:34px;right:34px;border-left:0;border-bottom:0}
+  .c3{bottom:34px;left:34px;border-right:0;border-top:0}.c4{bottom:34px;right:34px;border-left:0;border-top:0}
+  .wrap{position:relative;z-index:2;height:100%;padding:64px;display:flex;flex-direction:column;align-items:center;text-align:center}
+  .mono{font-family:var(--mono);font-size:11px;letter-spacing:.42em;text-transform:uppercase;color:var(--gold)}
+  .rule{display:flex;align-items:center;gap:14px;margin-top:16px}
+  .rule .ln{width:60px;height:1px;background:linear-gradient(90deg,transparent,var(--gold))}
+  .rule .ln.r{background:linear-gradient(90deg,var(--gold),transparent)}
+  .rule .dia{width:7px;height:7px;background:var(--gold);transform:rotate(45deg)}
+  .brand{font-family:var(--disp);font-weight:500;font-size:84px;letter-spacing:.01em;line-height:1;margin-top:10px;color:var(--gold2)}
+  .brand i{font-style:italic;color:var(--ivory)}
+  .tag{font-family:var(--mono);font-size:12px;letter-spacing:.5em;text-transform:uppercase;color:var(--mut);margin-top:14px}
+  .lede{font-family:var(--disp);font-style:italic;font-weight:500;font-size:27px;color:var(--ivory);margin-top:24px;max-width:680px;line-height:1.35}
+  /* vault card */
+  .vault{margin-top:34px;width:620px;background:linear-gradient(180deg,rgba(241,231,210,.06),rgba(241,231,210,.02));
+    border:1px solid rgba(231,190,119,.45);border-radius:4px;padding:30px 34px;position:relative;
+    box-shadow:0 24px 60px rgba(0,0,0,.45),inset 0 0 0 4px rgba(231,190,119,.08)}
+  .vault .vh{display:flex;justify-content:space-between;align-items:center;font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+  .vault .vh .s{color:var(--gold)} .vault .vh .p{color:var(--mut)}
+  .vault .vt{font-family:var(--disp);font-weight:500;font-size:36px;margin-top:14px;letter-spacing:.01em}
+  .gdiv{height:1px;background:linear-gradient(90deg,transparent,rgba(231,190,119,.6),transparent);margin:18px 0}
+  .vrow{display:flex;justify-content:space-between;font-size:13px;color:var(--mut);letter-spacing:.03em}
+  .vrow b{color:var(--jade)}
+  .vbtn{margin-top:22px;display:inline-block;font-family:var(--body);font-weight:600;font-size:14px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--emer);background:linear-gradient(180deg,var(--gold2),var(--gold));padding:14px 34px;border-radius:3px;
+    box-shadow:0 10px 26px rgba(231,190,119,.3)}
+  .foot{margin-top:auto;font-family:var(--mono);font-size:10px;letter-spacing:.3em;text-transform:uppercase;color:var(--mut)}
+</style>
+</head>
+<body>
+  <svg class="rays" viewBox="0 0 1000 1000">
+    <g stroke="#E7BE77" stroke-width="1">
+      <!-- radiating deco rays -->
+      <line x1="500" y1="500" x2="500" y2="0"/><line x1="500" y1="500" x2="690" y2="20"/><line x1="500" y1="500" x2="310" y2="20"/>
+      <line x1="500" y1="500" x2="860" y2="120"/><line x1="500" y1="500" x2="140" y2="120"/><line x1="500" y1="500" x2="980" y2="320"/>
+      <line x1="500" y1="500" x2="20" y2="320"/><line x1="500" y1="500" x2="1000" y2="520"/><line x1="500" y1="500" x2="0" y2="520"/>
+      <line x1="500" y1="500" x2="600" y2="8"/><line x1="500" y1="500" x2="400" y2="8"/><line x1="500" y1="500" x2="770" y2="60"/><line x1="500" y1="500" x2="230" y2="60"/>
+    </g>
+  </svg>
+  <div class="frame"></div>
+  <div class="cnr c1"></div><div class="cnr c2"></div><div class="cnr c3"></div><div class="cnr c4"></div>
+
+  <div class="wrap">
+    <div class="mono">Stellar · Treasury · Governance</div>
+    <div class="rule"><span class="ln"></span><span class="dia"></span><span class="ln r"></span></div>
+    <div class="brand">Shadow<i>Kit</i></div>
+    <div class="tag">Direction C — Stellar Deco</div>
+    <div class="lede">“The ballot is sealed, the vote is silent — and the vault opens only on the will of the many.”</div>
+
+    <div class="vault">
+      <div class="vh"><span class="s">◆ Sealed · Results Hidden</span><span class="p">Proposal № 014</span></div>
+      <div class="vt">Swap 15,000 USDC → XLM</div>
+      <div class="gdiv"></div>
+      <div class="vrow"><span>Votes cast &nbsp; <b>12</b></span><span>Closes in &nbsp; <b>02:14:09</b></span><span>Tally &nbsp; <b>hidden</b></span></div>
+      <div class="vbtn">Cast Private Vote</div>
+    </div>
+
+    <div class="foot">Zero-Knowledge · Autonomous · IBW 2026</div>
+  </div>
+</body>
+</html>

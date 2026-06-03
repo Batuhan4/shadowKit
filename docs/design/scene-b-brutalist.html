@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;900&family=Archivo+Expanded:wght@800;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:1440px;height:900px}
+  :root{
+    --paper:#EBE7DA; --ink:#0B0B0A; --acid:#C6F000; --red:#FF3B1E; --slate:#5B5F57;
+    --disp:'Archivo Expanded','Archivo','Cantarell',sans-serif; --mono:'JetBrains Mono','Hack',monospace;
+  }
+  body{background:var(--paper);color:var(--ink);font-family:var(--mono);overflow:hidden;position:relative;
+       -webkit-print-color-adjust:exact;print-color-adjust:exact}
+  /* ruled grid */
+  .grid{position:absolute;inset:0;background-image:linear-gradient(rgba(11,11,10,.06) 1px,transparent 1px);background-size:100% 38px;pointer-events:none}
+  .vline{position:absolute;top:0;bottom:0;width:1px;background:rgba(11,11,10,.10)}
+  .frame{position:absolute;inset:22px;border:2px solid var(--ink);pointer-events:none}
+  .wrap{position:relative;z-index:2;height:100%;padding:34px 54px;display:flex;flex-direction:column}
+  /* header bar */
+  .bar{display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid var(--ink);padding-bottom:16px}
+  .brand{font-family:var(--disp);font-weight:900;font-size:30px;letter-spacing:-.02em}
+  .bar .tags{display:flex;gap:0}
+  .bar .tg{font-size:10px;letter-spacing:.14em;text-transform:uppercase;border:1.5px solid var(--ink);padding:6px 11px;margin-left:-1.5px}
+  .bar .tg.k{background:var(--ink);color:var(--paper)}
+  /* hero numerals */
+  .hero{display:flex;gap:30px;align-items:flex-start;margin-top:14px}
+  .bignum{font-family:var(--disp);font-weight:900;font-size:114px;line-height:.82;letter-spacing:-.05em}
+  .heroR{padding-top:8px}
+  .kick{font-size:12px;letter-spacing:.3em;text-transform:uppercase;color:var(--slate)}
+  .htxt{font-family:var(--disp);font-weight:900;font-size:40px;line-height:.98;letter-spacing:-.02em;margin-top:10px;text-transform:uppercase}
+  .htxt mark{background:var(--acid);color:var(--ink);padding:0 6px}
+  /* stamp */
+  .stamp{position:absolute;right:120px;top:150px;transform:rotate(-9deg);border:3px solid var(--red);color:var(--red);
+    font-family:var(--disp);font-weight:900;font-size:30px;letter-spacing:.08em;padding:8px 18px;text-transform:uppercase;
+    box-shadow:0 0 0 3px var(--paper),0 0 0 5px var(--red)}
+  /* proposal block */
+  .panel{margin-top:auto;margin-bottom:44px;display:grid;grid-template-columns:1.3fr 1fr;border:2px solid var(--ink)}
+  .panel .l{padding:17px 24px;border-right:2px solid var(--ink)}
+  .panel .meta{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--slate)}
+  .panel .ttl{font-family:var(--disp);font-weight:900;font-size:31px;letter-spacing:-.02em;margin-top:8px;line-height:.96}
+  .row{display:flex;justify-content:space-between;font-size:13px;border-top:1px solid rgba(11,11,10,.2);padding:6px 0}
+  .row span:last-child{font-weight:700}
+  .btn{display:inline-flex;align-items:center;gap:10px;margin-top:18px;background:var(--acid);color:var(--ink);
+    font-family:var(--disp);font-weight:900;font-size:16px;letter-spacing:.02em;text-transform:uppercase;padding:14px 22px;border:2px solid var(--ink)}
+  .panel .r{padding:17px 24px;display:flex;flex-direction:column}
+  .panel .r .h{font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--slate);margin-bottom:10px}
+  .log{font-size:12px;line-height:1.95}
+  .log b{background:var(--ink);color:var(--acid);padding:0 4px}
+  .log .ok{color:var(--ink);border-bottom:2px solid var(--acid)}
+  .seal{margin-top:auto;display:flex;justify-content:space-between;align-items:flex-end;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--slate)}
+</style>
+</head>
+<body>
+  <div class="grid"></div>
+  <div class="vline" style="left:33%"></div><div class="vline" style="left:66%"></div>
+  <div class="frame"></div>
+  <div class="wrap">
+    <div class="bar">
+      <div class="brand">SHADOWKIT</div>
+      <div class="tags"><span class="tg k">ZK</span><span class="tg">SEALED</span><span class="tg">AUTONOMOUS</span><span class="tg">STELLAR/SOROBAN</span></div>
+    </div>
+
+    <div class="hero">
+      <div class="bignum">014</div>
+      <div class="heroR">
+        <div class="kick">// private governance protocol</div>
+        <div class="htxt">Nobody sees<br>the tally<br>until <mark>it's over.</mark></div>
+      </div>
+    </div>
+    <div class="stamp">Sealed</div>
+
+    <div class="panel">
+      <div class="l">
+        <div class="meta">Proposal #014 · Treasury</div>
+        <div class="ttl">SWAP 15,000<br>USDC → XLM</div>
+        <div class="row"><span>votes cast</span><span>12</span></div>
+        <div class="row"><span>tally</span><span>HIDDEN ███</span></div>
+        <div class="row"><span>closes in</span><span>02:14:09</span></div>
+        <div class="btn">Cast private vote →</div>
+      </div>
+      <div class="r">
+        <div class="h">agent.log // execute</div>
+        <div class="log">
+          &gt; reveal: <b>QUORUM</b><br>
+          &gt; cap=15000 asset=USDC<br>
+          &gt; policy.check … <span class="ok">PASS</span><br>
+          &gt; swap … <span class="ok">EXECUTED</span><br>
+          &gt; tx 7f3a…b1
+        </div>
+        <div class="seal"><span>est. 2026 · IBW</span><span>no humans ↘</span></div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

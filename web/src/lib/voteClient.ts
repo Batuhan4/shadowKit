@@ -342,10 +342,14 @@ function proofScVal(p: OnChainProof): xdr.ScVal {
   );
 }
 
-/** ScVal for `pub_signals: Vec<Bls12381Fr>` — each Fr is the 32-byte big-endian (be32) bytes. */
-function pubSignalsScVal(decimalSignals: string[]): xdr.ScVal {
+/** ScVal for `pub_signals: Vec<Bls12381Fr>`. CRITICAL: each Fr MUST be `ScVal::U256`, NOT `ScVal::Bytes`.
+ *  Both deserialize into an Fr at the ABI boundary, but an Fr built from `ScVal::Bytes` TRAPS the BLS host
+ *  (`bls12_381 g1_mul`) inside verify → `UnreachableCodeReached`; an Fr from `ScVal::U256` works. This
+ *  matches the proven demo CLI path (demo.sh passes decimal strings → the CLI encodes them as U256).
+ *  Empirically confirmed on testnet: U256 → verify=true, Bytes → trap (2026-06-03). */
+export function pubSignalsScVal(decimalSignals: string[]): xdr.ScVal {
   return xdr.ScVal.scvVec(
-    decimalSignals.map((d) => xdr.ScVal.scvBytes(Buffer.from(hexToBytes(fieldToBe32Hex(d))))),
+    decimalSignals.map((d) => nativeToScVal(BigInt(d), { type: "u256" })),
   );
 }
 

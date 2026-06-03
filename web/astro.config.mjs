@@ -43,6 +43,7 @@ export default defineConfig({
         {
           label: "Guides",
           items: [
+            { label: "Integrate ShadowKit", link: "/docs/integrate" },
             { label: "Sealed-voting flow", link: "/docs/sealed-voting-flow" },
           ],
         },

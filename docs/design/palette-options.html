@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  @import url('data:,');
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:1440px;height:920px}
+  body{
+    background:
+      radial-gradient(1200px 500px at 15% -10%, rgba(142,123,255,.10), transparent 60%),
+      radial-gradient(1000px 500px at 85% 110%, rgba(79,224,166,.08), transparent 60%),
+      #08080C;
+    color:#EDEEF4; font-family:'Space Grotesk','Cantarell',sans-serif;
+    -webkit-print-color-adjust:exact; print-color-adjust:exact;
+    padding:44px 48px; overflow:hidden;
+  }
+  .top{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:26px}
+  .top .ttl{font-size:30px;font-weight:700;letter-spacing:-.02em}
+  .top .ttl b{background:linear-gradient(120deg,#8E7BFF,#46E5E0,#F4C45A);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .top .sub{font-family:'Hack',monospace;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:#7C7F95;text-align:right;line-height:1.7}
+  .cols{display:flex;gap:26px;height:790px}
+  .col{flex:1;border-radius:22px;border:1px solid rgba(255,255,255,.10);overflow:hidden;position:relative;
+       display:flex;flex-direction:column;background:var(--base)}
+  .col::before{content:"";position:absolute;width:360px;height:360px;border-radius:50%;top:-140px;right:-120px;
+       background:radial-gradient(circle,var(--glow),transparent 70%);filter:blur(20px);opacity:.5}
+  .col .pad{position:relative;z-index:1;padding:26px 24px;display:flex;flex-direction:column;height:100%}
+  .tag{font-family:'Hack',monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--muted)}
+  .nm{font-size:25px;font-weight:700;letter-spacing:-.02em;margin-top:7px;color:var(--primary)}
+  .mood{font-size:13px;line-height:1.5;color:var(--muted);margin-top:8px;min-height:38px}
+  .sw{display:flex;gap:9px;margin-top:18px}
+  .sw .s{flex:1;display:flex;flex-direction:column;gap:6px;align-items:center}
+  .sw .chip{width:100%;height:46px;border-radius:10px;border:1px solid rgba(255,255,255,.14);box-shadow:0 4px 14px rgba(0,0,0,.35)}
+  .sw .hx{font-family:'Hack',monospace;font-size:8.5px;color:var(--muted);letter-spacing:.02em}
+  .sw .rl{font-family:'Hack',monospace;font-size:7.5px;color:var(--faint);text-transform:uppercase;letter-spacing:.08em}
+  /* mini mock */
+  .mock{margin-top:22px;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px}
+  .mock .row{display:flex;justify-content:space-between;align-items:center}
+  .mock .sealed{display:inline-flex;align-items:center;gap:7px;font-family:'Hack',monospace;font-size:10px;
+       letter-spacing:.08em;color:var(--highlight);background:var(--highlight-soft);border:1px solid var(--highlight-line);
+       border-radius:999px;padding:5px 11px}
+  .mock .sealed .dot{width:6px;height:6px;border-radius:50%;background:var(--highlight)}
+  .mock .pid{font-family:'Hack',monospace;font-size:10px;color:var(--faint)}
+  .mock .h{font-size:19px;font-weight:600;letter-spacing:-.01em;margin-top:14px;color:var(--text)}
+  .mock .meta{font-size:12px;color:var(--muted);margin-top:6px}
+  .mock .meta b{color:var(--secondary);font-weight:600}
+  .mock .btns{display:flex;gap:10px;margin-top:16px}
+  .mock .b1{flex:1;text-align:center;font-size:13px;font-weight:600;color:var(--on-primary);background:var(--primary);
+       border-radius:10px;padding:11px;box-shadow:0 6px 18px var(--primary-glow)}
+  .mock .b2{font-size:12px;color:var(--secondary);border:1px solid var(--secondary-line);background:var(--secondary-soft);
+       border-radius:10px;padding:11px 14px}
+  .mock .bar{height:6px;border-radius:999px;background:var(--track);margin-top:16px;overflow:hidden;position:relative}
+  .mock .bar i{position:absolute;left:0;top:0;bottom:0;width:38%;border-radius:999px;background:linear-gradient(90deg,var(--primary),var(--secondary))}
+  .foot{margin-top:auto;padding-top:18px;border-top:1px solid var(--line)}
+  .foot .fl{font-family:'Hack',monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin-bottom:7px}
+  .foot .ft{font-size:12.5px;color:var(--text)}
+  .foot .ft span{color:var(--muted)}
+</style>
+</head>
+<body>
+  <div class="top">
+    <div class="ttl">ShadowKit — <b>3 Palette Directions</b></div>
+    <div class="sub">Pick a vibe · A·B·C<br>AgentBoard / DESIGN.md</div>
+  </div>
+
+  <div class="cols">
+    <!-- A · NIGHTSHADE -->
+    <div class="col" style="
+      --base:#0B0C12; --surface:#161824; --line:rgba(255,255,255,.08); --track:rgba(255,255,255,.08);
+      --text:#ECEDF4; --muted:#9499AE; --faint:#646883; --glow:rgba(142,123,255,.5);
+      --primary:#8E7BFF; --on-primary:#0B0C12; --primary-glow:rgba(142,123,255,.35);
+      --secondary:#46E5E0; --secondary-soft:rgba(70,229,224,.10); --secondary-line:rgba(70,229,224,.30);
+      --highlight:#F4C45A; --highlight-soft:rgba(244,196,90,.10); --highlight-line:rgba(244,196,90,.32);">
+      <div class="pad">
+        <div class="tag">Direction A</div>
+        <div class="nm">Nightshade</div>
+        <div class="mood">Premium, mysterious, cryptographic luxury. Refines your current brand — “vote in the shadows.”</div>
+        <div class="sw">
+          <div class="s"><div class="chip" style="background:#0B0C12"></div><div class="hx">0B0C12</div><div class="rl">base</div></div>
+          <div class="s"><div class="chip" style="background:#161824"></div><div class="hx">161824</div><div class="rl">surf</div></div>
+          <div class="s"><div class="chip" style="background:#8E7BFF"></div><div class="hx">8E7BFF</div><div class="rl">iris</div></div>
+          <div class="s"><div class="chip" style="background:#46E5E0"></div><div class="hx">46E5E0</div><div class="rl">cyan</div></div>
+          <div class="s"><div class="chip" style="background:#F4C45A"></div><div class="hx">F4C45A</div><div class="rl">gold</div></div>
+          <div class="s"><div class="chip" style="background:#5BD98C"></div><div class="hx">5BD98C</div><div class="rl">ok</div></div>
+        </div>
+        <div class="mock">
+          <div class="row"><span class="sealed"><span class="dot"></span>SEALED · 02:14:09</span><span class="pid">#PRO-014</span></div>
+          <div class="h">Swap 15,000 USDC → XLM</div>
+          <div class="meta">Results hidden · <b>12 votes cast</b></div>
+          <div class="bar"><i></i></div>
+          <div class="btns"><div class="b1">Cast private vote</div><div class="b2">Details</div></div>
+        </div>
+        <div class="foot">
+          <div class="fl">Type pairing</div>
+          <div class="ft">Clash Display <span>+ Hanken Grotesk + JetBrains Mono</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- B · ACID TERMINAL -->
+    <div class="col" style="
+      --base:#050609; --surface:#0E1117; --line:rgba(124,255,160,.10); --track:rgba(255,255,255,.07);
+      --text:#E6F0EA; --muted:#7E8C84; --faint:#566159; --glow:rgba(91,245,154,.45);
+      --primary:#5BF59A; --on-primary:#04130B; --primary-glow:rgba(91,245,154,.32);
+      --secondary:#FF4D8D; --secondary-soft:rgba(255,77,141,.10); --secondary-line:rgba(255,77,141,.34);
+      --highlight:#2BD9FF; --highlight-soft:rgba(43,217,255,.10); --highlight-line:rgba(43,217,255,.32);">
+      <div class="pad">
+        <div class="tag">Direction B</div>
+        <div class="nm">Acid Terminal</div>
+        <div class="mood">Cypherpunk, raw, phosphor-on-black. The agent terminal becomes the whole brand. High energy.</div>
+        <div class="sw">
+          <div class="s"><div class="chip" style="background:#050609"></div><div class="hx">050609</div><div class="rl">base</div></div>
+          <div class="s"><div class="chip" style="background:#0E1117"></div><div class="hx">0E1117</div><div class="rl">surf</div></div>
+          <div class="s"><div class="chip" style="background:#5BF59A"></div><div class="hx">5BF59A</div><div class="rl">phos</div></div>
+          <div class="s"><div class="chip" style="background:#FF4D8D"></div><div class="hx">FF4D8D</div><div class="rl">mag</div></div>
+          <div class="s"><div class="chip" style="background:#2BD9FF"></div><div class="hx">2BD9FF</div><div class="rl">cyan</div></div>
+          <div class="s"><div class="chip" style="background:#5BF59A"></div><div class="hx">5BF59A</div><div class="rl">ok</div></div>
+        </div>
+        <div class="mock">
+          <div class="row"><span class="sealed"><span class="dot"></span>SEALED · 02:14:09</span><span class="pid">#PRO-014</span></div>
+          <div class="h">Swap 15,000 USDC → XLM</div>
+          <div class="meta">Results hidden · <b>12 votes cast</b></div>
+          <div class="bar"><i></i></div>
+          <div class="btns"><div class="b1">Cast private vote</div><div class="b2">Details</div></div>
+        </div>
+        <div class="foot">
+          <div class="fl">Type pairing</div>
+          <div class="ft">Departure Mono <span>+ IBM Plex Sans + IBM Plex Mono</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- C · STELLAR SENTINEL -->
+    <div class="col" style="
+      --base:#0B1430; --surface:#142244; --line:rgba(255,255,255,.09); --track:rgba(255,255,255,.09);
+      --text:#EAF0FB; --muted:#8E9BBA; --faint:#5E6C8E; --glow:rgba(255,194,75,.38);
+      --primary:#FFC24B; --on-primary:#1A1304; --primary-glow:rgba(255,194,75,.30);
+      --secondary:#5AA9FF; --secondary-soft:rgba(90,169,255,.12); --secondary-line:rgba(90,169,255,.34);
+      --highlight:#4FE0A6; --highlight-soft:rgba(79,224,166,.12); --highlight-line:rgba(79,224,166,.34);">
+      <div class="pad">
+        <div class="tag">Direction C</div>
+        <div class="nm">Stellar Sentinel</div>
+        <div class="mood">Institutional, trustworthy, Stellar-native. Navy ink + gold — “serious treasury you’d trust.”</div>
+        <div class="sw">
+          <div class="s"><div class="chip" style="background:#0B1430"></div><div class="hx">0B1430</div><div class="rl">base</div></div>
+          <div class="s"><div class="chip" style="background:#142244"></div><div class="hx">142244</div><div class="rl">surf</div></div>
+          <div class="s"><div class="chip" style="background:#FFC24B"></div><div class="hx">FFC24B</div><div class="rl">gold</div></div>
+          <div class="s"><div class="chip" style="background:#5AA9FF"></div><div class="hx">5AA9FF</div><div class="rl">sky</div></div>
+          <div class="s"><div class="chip" style="background:#4FE0A6"></div><div class="hx">4FE0A6</div><div class="rl">mint</div></div>
+          <div class="s"><div class="chip" style="background:#4FE0A6"></div><div class="hx">4FE0A6</div><div class="rl">ok</div></div>
+        </div>
+        <div class="mock">
+          <div class="row"><span class="sealed"><span class="dot"></span>SEALED · 02:14:09</span><span class="pid">#PRO-014</span></div>
+          <div class="h">Swap 15,000 USDC → XLM</div>
+          <div class="meta">Results hidden · <b>12 votes cast</b></div>
+          <div class="bar"><i></i></div>
+          <div class="btns"><div class="b1">Cast private vote</div><div class="b2">Details</div></div>
+        </div>
+        <div class="foot">
+          <div class="fl">Type pairing</div>
+          <div class="ft">Fraunces <span>+ Public Sans + JetBrains Mono</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
