@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@astrojs/react": "5.0.6",
+    "@astrojs/starlight": "^0.39.2",
     "@creit.tech/stellar-wallets-kit": "^2.2.0",
     "@google/genai": "^2.7.0",
     "@shadowkit/shared": "0.1.0",

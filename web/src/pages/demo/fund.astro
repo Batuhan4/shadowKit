@@ -47,96 +47,92 @@ const projects: FundProject[] = [
     live: false,
   },
 ];
+
+// The "how a sealed vote works" ledger — one line per step, mono index, minimal copy.
+const steps = [
+  {
+    k: "PROVE",
+    t: "Prove membership privately",
+    d: "snarkjs builds a Groth16 proof that you're in the voter snapshot — in your browser. No address, weight or direction leaves the device.",
+  },
+  {
+    k: "SEAL",
+    t: "Timelock-seal the choice",
+    d: "Your (weight, direction) is tlock-encrypted to a future drand round — genuinely undecryptable until close. The chain stores only ciphertext + a commitment.",
+  },
+  {
+    k: "CAST",
+    t: "Cast on-chain, tally sealed",
+    d: "GovVault verifies the proof on-chain and records the sealed vote. Only a participation count is exposed — never the running tally.",
+  },
+  {
+    k: "REVEAL",
+    t: "Reveal & disburse",
+    d: "After close, every sealed vote is tlock-decrypted and re-aggregated on-chain. If approved, the winning project receives the USDC pool.",
+  },
+];
 ---
 
 <Layout
   title="ShadowFund — private community-fund voting · ShadowKit"
   description="Vote on community-fund projects privately: a real client-side zero-knowledge proof hides your identity, weight and direction, and a timelock seal keeps the running tally invisible until close. Live on Stellar testnet."
 >
-  <section class="hero container">
-    <span class="eyebrow reveal-up">Hack-Privacy showcase · live on testnet</span>
-    <h1 class="reveal-up">
-      Vote in the <span class="gradient-text">shadows.</span>
-    </h1>
-    <p class="lede reveal-up">
-      A community-fund round where whales can&apos;t see which way it&apos;s going. Each vote is a real
-      zero-knowledge proof — your identity, weight and direction stay hidden — and the running tally is
-      timelock-sealed until close. Then the seal breaks, the winner is revealed, and the USDC pool is
-      disbursed on-chain.
+  <!-- HERO -->
+  <section class="hero wrap">
+    <p class="eyebrow rise">Hack-Privacy showcase · live on testnet</p>
+    <h1 class="rise">Vote in the shadows.<br />Fund in the <span class="lit">light</span>.</h1>
+    <p class="lede hero-lede rise">
+      A community-fund round where whales can&apos;t see which way it&apos;s going. Each ballot is a real
+      zero-knowledge proof — identity, weight and direction hidden — and the running tally is
+      timelock-sealed until close. Then the seal breaks, the winner is revealed, the pool is disbursed
+      on-chain.
     </p>
-    <div class="hero-meta reveal-up">
-      <span class="badge badge-veil">ZK membership proof</span>
-      <span class="badge badge-cyan">tlock / drand seal</span>
-      <span class="badge badge-gold">on-chain reveal</span>
-      <a class="mono hero-contract" href={explorerContract(CONFIG.govVaultId)} target="_blank" rel="noopener">
+    <div class="hero-meta mono rise">
+      <span class="tag tag-lime">ZK membership proof</span>
+      <span class="tag">tlock · drand seal</span>
+      <span class="tag">on-chain reveal</span>
+      <a class="hero-contract" href={explorerContract(CONFIG.govVaultId)} target="_blank" rel="noopener">
         GovVault · {short(CONFIG.govVaultId)} ↗
       </a>
     </div>
   </section>
 
-  <section class="app container">
+  <section class="app wrap">
     <!-- client:only — the island needs the browser (wallet, snarkjs/wasm, tlock, RPC). -->
     <FundApp client:only="react" projects={projects} proposalId={PROPOSAL_ID} poolUsdc={POOL_USDC} />
   </section>
 
-  <section class="how container">
-    <h2>How a sealed vote works</h2>
-    <ol class="steps">
-      <li class="card">
-        <span class="step-n">01</span>
-        <h3>Prove membership privately</h3>
-        <p>
-          snarkjs builds a Groth16 proof that you&apos;re in the voter snapshot and computes a nullifier
-          — all in your browser. No address, weight or direction is revealed.
-        </p>
-      </li>
-      <li class="card">
-        <span class="step-n">02</span>
-        <h3>Timelock-seal the choice</h3>
-        <p>
-          Your (weight, direction) is encrypted with tlock to a future drand round — genuinely
-          undecryptable until the deadline. The chain stores only the ciphertext + a commitment.
-        </p>
-      </li>
-      <li class="card">
-        <span class="step-n">03</span>
-        <h3>Cast on-chain, tally sealed</h3>
-        <p>
-          GovVault verifies the proof on-chain and records the sealed vote. The running tally is never
-          exposed — only a participation count.
-        </p>
-      </li>
-      <li class="card">
-        <span class="step-n">04</span>
-        <h3>Reveal &amp; disburse</h3>
-        <p>
-          After close, every sealed vote is tlock-decrypted and re-aggregated on-chain. If approved, the
-          winning project receives the USDC pool — with a Stellar Explorer link.
-        </p>
-      </li>
+  <!-- HOW IT WORKS -->
+  <section class="how wrap">
+    <p class="eyebrow">The mechanism</p>
+    <h2 class="how-h">How a sealed vote works</h2>
+    <ol class="ledger">
+      {steps.map((s, i) => (
+        <li>
+          <span class="idx">0{i + 1} / {s.k}</span>
+          <div>
+            <h3>{s.t}</h3>
+            <p class="muted">{s.d}</p>
+          </div>
+        </li>
+      ))}
     </ol>
   </section>
 </Layout>
 
 <style>
-  .hero { padding: 4.5rem 24px 2.5rem; max-width: 900px; }
-  .hero h1 { margin-bottom: 0.4em; }
-  .lede { font-size: 1.12rem; color: var(--mist); max-width: 64ch; }
-  .hero-meta { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin-top: 1.4rem; }
-  .hero-contract { color: var(--cyan); font-size: 0.82rem; }
-  .reveal-up { animation: fadeUp 0.7s cubic-bezier(0.2,0.7,0.2,1) both; }
-  .hero .reveal-up:nth-child(1) { animation-delay: 0.02s; }
-  .hero .reveal-up:nth-child(2) { animation-delay: 0.08s; }
-  .hero .reveal-up:nth-child(3) { animation-delay: 0.16s; }
-  .hero .reveal-up:nth-child(4) { animation-delay: 0.24s; }
+  .hero { padding-block: clamp(3rem, 7vw, 6rem) clamp(1.6rem, 3vw, 2.6rem); }
+  .hero h1 { max-width: 16ch; }
+  .lit { color: var(--lime); }
+  .hero-lede { margin: 1.4rem 0 1.8rem; max-width: 58ch; }
+  .hero-meta { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+  .hero-contract { color: var(--text-2); font-size: 0.78rem; letter-spacing: 0.02em; }
+  .hero-contract:hover { color: var(--lime); text-decoration: none; }
 
-  .app { padding: 1rem 24px 2rem; }
+  .rise:nth-child(2){animation-delay:.05s}.rise:nth-child(3){animation-delay:.1s}.rise:nth-child(4){animation-delay:.15s}
 
-  .how { padding: 3rem 24px 1rem; }
-  .how h2 { margin-bottom: 1.6rem; }
-  .steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 1.1rem; }
-  .steps .card { display: flex; flex-direction: column; gap: 0.4rem; }
-  .step-n { font-family: var(--font-mono); color: var(--veil); font-size: 0.8rem; letter-spacing: 0.1em; }
-  .steps h3 { font-size: 1.05rem; margin: 0.2rem 0; }
-  .steps p { font-size: 0.9rem; margin: 0; }
+  .app { padding-block: clamp(1rem, 2vw, 1.6rem) clamp(1.4rem, 3vw, 2.4rem); }
+
+  .how { padding-block: clamp(2.4rem, 5vw, 4.5rem) clamp(2.4rem, 5vw, 4rem); }
+  .how-h { margin-bottom: clamp(1.4rem, 3vw, 2rem); font-size: clamp(1.6rem, 2.6vw, 2.4rem); }
 </style>

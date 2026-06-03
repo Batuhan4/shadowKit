@@ -1,0 +1,102 @@
+---
+title: Sealed-voting flow
+description: "The full lifecycle, end to end: snapshot → propose → seal → cast → reveal → execute. This is exactly what the live ShadowFund + AgentBoard demos run."
+---
+
+import { Aside, Steps } from "@astrojs/starlight/components";
+import { CONFIG, explorerContract, short } from "../../../lib/config.ts";
+
+<p class="eyebrow">Guide · end-to-end lifecycle</p>
+
+This guide walks the complete ShadowKit lifecycle with the real SDK calls. It mirrors the live testnet demos — `GovVault` at <a href={explorerContract(CONFIG.govVaultId)} target="_blank" rel="noopener">{short(CONFIG.govVaultId)}</a>.
+
+## The seven steps
+
+<Steps>
+
+1. **Snapshot eligible holders** — build a Poseidon Merkle tree; its root is registered on `GovVault` at init.
+
+2. **Create a proposal** — `create_proposal(action_spec, cap, deadline)` returns a proposal id; the deadline fixes the tlock round.
+
+3. **Prove + seal a vote** — `generateVoteProof`: Groth16 proof + tlock-sealed `(direction, weight)`. _The witness never leaves the browser._
+
+4. **Cast on-chain** — `cast_vote` verifies the proof, checks the nullifier + binding + root, and stores the sealed ciphertext. **No tally is exposed.**
+
+5. **Sealed until close** — `votes_cast` is public; `weighted_yes/no` stay None. The tally is cryptographically unknowable until the drand round.
+
+6. **Close & reveal** — after the deadline, `buildRevealArgs` tlock-decrypts every vote; `close_and_reveal` re-aggregates on-chain → `Approved | Rejected`.
+
+7. **Agent executes** — on approval, the bounded agent pays for data, plans, and submits a policy-gated swap; `mark_executed` makes it single-shot.
+
+</Steps>
+
+## 1–2 · Snapshot & propose
+
+```ts
+import { buildSnapshot } from "@shadowkit/snapshot-tool";
+import { bindings } from "@shadowkit/shared";
+
+const snapshot = await buildSnapshot(holders);          // depth 20 (== circuit)
+// GovVault.init(admin, verifierId, snapshot.rootBe32Hex, usdcId, quorumCfg)
+const proposalId = await govVault.create_proposal({
+  action_spec, cap, deadline,                           // deadline → tlock round
+});
+```
+
+## 3–4 · Prove, seal, and cast
+
+The proof and the sealed ciphertext are produced together so the proof attests the ciphertext is well-formed (public signal #4).
+
+```ts
+import { generateVoteProof } from "@shadowkit/zk-prover";
+
+const { merklePath, pathIndices } = snapshot.getPath(myLeafIndex);
+const { proof, publicSignals, sealedCiphertext } = await generateVoteProof(
+  { secret, merklePath, pathIndices, weight, proposalId: String(proposalId),
+    direction: 1, merkleRoot: snapshot.root },
+  { wasmPath: "/zk/vote.wasm", zkeyPath: "/zk/vote_final.zkey" },
+  deadlineUnixSeconds,
+);
+
+await govVault.cast_vote(proposalId, proof, publicSignals, sealedCiphertext);
+```
+
+<Aside type="tip" title="What the chain checks at cast">
+Valid Groth16 proof · nullifier not already used (`NullifierUsed`) · proposalId binding (`WrongProposalId`) · merkleRoot matches the stored snapshot (`StaleMerkleRoot`) · before the deadline (`DeadlinePassed`). It stores the ciphertext and emits `VoteCast(id, nullifier)` — no direction, no weight.
+</Aside>
+
+## 5 · Sealed until close
+
+The running tally is unknowable: `weighted_yes` / `weighted_no` are `None` in `ProposalView`, and the votes themselves are tlock-encrypted to a drand round that hasn't happened yet. Only `votes_cast` (participation) is public.
+
+## 6 · Close & reveal
+
+```ts
+import { buildRevealArgs } from "@shadowkit/tally-reveal";
+
+// After the deadline (drand round reached):
+const args = await buildRevealArgs(proposalId, sealedVotes);   // real tlock decrypt
+await govVault.close_and_reveal(
+  args.proposalId, args.revealedYesW, args.revealedNoW, args.decryptions,
+);
+// The chain re-aggregates the decryptions against the committed ciphertexts:
+//   RevealMismatch if any decryption doesn't bind to its stored ciphertext or the sums disagree.
+```
+
+<Aside type="caution" title="Decryptions bind to ciphertexts">
+`close_and_reveal` requires one `VoteDecryption` per stored sealed vote, in the same order, each carrying its `sealedCommitmentHash`. The contract recomputes the weighted sums itself — you cannot substitute or reorder votes.
+</Aside>
+
+## 7 · Agent executes the approved action
+
+```ts
+import { AgentRunner } from "@shadowkit/agent";
+
+const runner = new AgentRunner(agentConfig);    // session key + Gemini key = server secrets
+const { txHash } = await runner.run(proposalId, onLog);
+// watch(approved) → x402 pay data → LLM plan (≤ cap) → AgentPolicy.enforce → swap → mark_executed
+```
+
+<Aside type="tip" title="Run it live">
+The [ShadowFund](/demo/fund) demo runs steps 1–6 in the browser; the [AgentBoard](/demo/agent) demo runs step 7 via a Cloudflare Worker. Every tx hash resolves on Stellar Explorer (testnet).
+</Aside>

@@ -1,0 +1,61 @@
+---
+title: Architecture
+description: How the zero-knowledge, timelock, governance, and agent layers fit together — and the privacy/security split that makes the demo genuinely live.
+---
+
+import { Aside } from "@astrojs/starlight/components";
+
+<p class="eyebrow">Concepts · the four layers</p>
+
+ShadowKit is layered so each concern is enforced where it belongs: **privacy in the browser, correctness on-chain, execution behind a policy lock.** Nothing is "trusted" — every claim is either a zero-knowledge proof, a timelock, or an on-chain check.
+
+## The four layers
+
+- **Snapshot & circuit (ZK).** `@shadowkit/snapshot-tool` builds a Poseidon Merkle tree of eligible holders. The `vote` Circom circuit proves membership + a hidden weight and emits a nullifier, producing a Groth16 proof over BLS12-381.
+- **Seal (timelock).** `@shadowkit/zk-prover` tlock-encrypts the `(direction, weight)` to the drand round at the proposal deadline. The on-chain ciphertext is bound to the proof by its commitment hash (public signal #4).
+- **Governance (on-chain).** `GovVault` verifies the proof via the `Groth16Verifier` contract, stores the sealed vote, and — after the deadline — re-aggregates the revealed tally and sets `Approved` / `Rejected`.
+- **Agent & policy (bounded execution).** The `@shadowkit/agent` loop pays an x402 data endpoint, asks an LLM for a bounded plan, and submits a swap — which the `AgentPolicy` smart-account contract authorizes only if it matches the approved action.
+
+## Data flow
+
+```text title="flow"
+Browser (private)                              Chain (verifiable)            Agent (bounded)
+─────────────────                              ──────────────────            ───────────────
+buildSnapshot()  ── Merkle root ──────────────▶ GovVault.init(root)
+generateVoteProof()
+  · Groth16 proof (snarkjs + vote.wasm)
+  · tlock seal (direction,weight → round)
+       │ proof + sealed ciphertext
+       ▼
+   cast_vote(id, proof, pubSignals, sealed) ──▶ Groth16Verifier.verify
+                                                 store SealedVote (no tally)
+  ── after deadline ──
+revealTally() (tlock decrypt) ── decryptions ─▶ close_and_reveal(id, yesW, noW, decryptions)
+                                                 re-aggregate → Approved? ───▶ Watcher.waitForApproved
+                                                                               x402 pay premium-data
+                                                                               LLM plan (≤ cap)
+                                                 AgentPolicy.enforce ◀──────── Executor.executeSwap
+                                                 SwapVenue.swap                mark_executed (single-shot)
+```
+
+## The privacy / security split
+
+The demo runs fully live on testnet because the secrets are partitioned correctly:
+
+- **The voter's witness** (secret, weight, direction) never leaves the browser — that is what makes the vote private.
+- **The agent's signing key and LLM key** live only as Cloudflare Pages Function secrets — they never reach the browser.
+
+<Aside type="note" title="Why both halves are honest">
+The voter half is client-side so privacy is real (no server sees the vote). The agent half is server-side so the execution key is real (no browser holds it). Both are genuinely on testnet — there is no canned recording.
+</Aside>
+
+## Trust model
+
+- **No tally leak before close.** `GovVault` exposes `votes_cast` (participation) but `weighted_yes` / `weighted_no` are `None` until the reveal.
+- **No double-vote.** The nullifier (`Poseidon(secret, proposalId)`) is stored; a repeat is rejected with `NullifierUsed`.
+- **No replay across proposals.** The proof binds `proposalId` as a public signal; a proof for one proposal fails on another (`WrongProposalId`).
+- **No off-spec execution.** `AgentPolicy` re-reads `GovVault` during authorization and applies its gates (approved · not-executed · target · asset · cap). See [Contracts](/docs/contracts).
+
+<Aside type="caution" title="Demo-grade verifier">
+The on-chain `Groth16Verifier` is adapted from the Stellar `soroban-examples` reference and is unaudited. Treat it as demo-grade.
+</Aside>

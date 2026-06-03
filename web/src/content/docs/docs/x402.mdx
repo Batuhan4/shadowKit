@@ -1,0 +1,80 @@
+---
+title: x402 services
+description: Real HTTP 402 payments on Stellar — both directions. The agent pays for premium data; ShadowKit sells verify/execute. Settlement is a USDC (SEP-41 SAC) transfer.
+---
+
+import { Aside } from "@astrojs/starlight/components";
+
+<p class="eyebrow">SDK reference · HTTP 402 on Stellar</p>
+
+ShadowKit is an x402 participant on both sides: the agent **pays** for market data, and ShadowKit **sells** proof-verification and execution to other agents. Both use the real `@x402/stellar` mechanism — no faked 200s.
+
+| Package | Kind | Role |
+| --- | --- | --- |
+| `@shadowkit/x402-shared` | library | DRY Stellar resource-server construction + local test facilitator + auto-paying fetch. |
+| `@shadowkit/x402-premium-data` | service | x402-protected market price + signal — the endpoint the AGENT pays. |
+| `@shadowkit/x402-api` | service | x402-protected verify/execute — the endpoints ShadowKit SELLS to other agents. |
+
+## @shadowkit/x402-shared
+
+The shared construction layer so every service builds the resource server the same way.
+
+| Export | Returns | Description |
+| --- | --- | --- |
+| `buildStellarResourceServer(cfg)` | → RequestHandler | Wires `x402ResourceServer` + `ExactStellarScheme` + `paymentMiddleware` for the given routes. |
+| `startTestFacilitator(cfg)` | → Promise | Stands up a real `x402Facilitator` over HTTP (`createFacilitatorRouter`) for local round-trip tests. |
+| `makeX402Fetch(signerSecret, network)` | → fetch | Client-side auto-paying fetch — answers the 402 challenge and retries (used by the agent + tests). |
+| `StellarNetwork` | type | `"stellar:testnet" \| "stellar:pubnet"` (CAIP-2). |
+
+## Agent pays — premium-data
+
+A `GET /market/:pair` endpoint behind the x402 paywall. It returns 402 until paid, then `{ pair, price, signal }`. The agent's `DataClient` answers the challenge automatically.
+
+```ts title="x402-services/premium-data/src/server.ts"
+import { createPremiumDataServer } from "@shadowkit/x402-premium-data";
+
+const app = createPremiumDataServer({
+  payTo: RESOURCE_SERVER_ADDRESS,   // G... that receives USDC
+  network: "stellar:testnet",
+  priceUsdc: "0.01",
+  facilitatorUrl,                   // OZ Channels facilitator / local test facilitator
+});
+app.listen(4021);
+// GET /market/XLM-USDC → 402 until paid → { pair, price, signal }
+```
+
+## ShadowKit sells — shadowkit-api
+
+`POST /verify` runs the real off-chain Groth16 verification; `POST /execute` gates on `GovVault.is_approved` and, only if approved, kicks the agent and returns the swap tx hash. Both sit behind the same paywall.
+
+```ts title="x402-services/shadowkit-api/src/server.ts"
+import { createShadowKitApiServer } from "@shadowkit/x402-api";
+
+const app = createShadowKitApiServer({
+  payTo: RESOURCE_SERVER_ADDRESS,
+  network: "stellar:testnet",
+  priceUsdc: "0.05",
+  facilitatorUrl,
+  govVaultId, rpcUrl,
+});
+// POST /verify  { proof, publicSignals } → { valid }
+// POST /execute { proposalId }           → { accepted, proposalId, txHash }  (403 if not approved)
+```
+
+<Aside type="caution" title="Real settlement needs three funded accounts">
+A Stellar x402 settlement is a USDC (SEP-41 SAC) transfer, not an XLM payment. It needs three distinct testnet keypairs: the **client/payer** (XLM + USDC trustline + USDC), the **facilitator** (XLM, submits the settle tx), and the **resource server / payTo** (XLM + USDC trustline). A single self-paying XLM account cannot settle.
+</Aside>
+
+## Client side — paying a 402
+
+```ts
+import { makeX402Fetch } from "@shadowkit/x402-shared";
+
+const pay = makeX402Fetch(CLIENT_SECRET, "stellar:testnet");
+const res = await pay("https://.../market/XLM-USDC"); // auto-answers the 402, retries, returns 200
+const data = await res.json();
+```
+
+<Aside type="note" title="Default USDC (testnet)">
+The default asset is the testnet USDC SEP-41 SAC (`CBIELTK6…DAMA`, 7 decimals). Testnet USDC is minted from the Circle faucet; the deploy bootstrap adds the trustlines and balances.
+</Aside>

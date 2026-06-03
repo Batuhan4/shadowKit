@@ -1,0 +1,113 @@
+---
+title: Contracts
+description: The Soroban smart contracts, deployed live on Stellar testnet. Every address below resolves on Stellar Explorer.
+---
+
+import { Aside, LinkCard, CardGrid } from "@astrojs/starlight/components";
+import { CONFIG, explorerContract, explorerAccount, short } from "../../../lib/config.ts";
+
+export const deployed = [
+  { name: "GovVault", crate: "gov-vault", id: CONFIG.govVaultId, role: "Sealed-vote storage, proof verification, quorum + reveal, approval gate." },
+  { name: "Groth16Verifier", crate: "groth16-verifier", id: CONFIG.verifierId, role: "On-chain Groth16 (BLS12-381) proof verification." },
+  { name: "AgentPolicy", crate: "agent-policy", id: CONFIG.agentPolicyId, role: "OZ smart-account policy — the lock that gates agent swaps." },
+  { name: "FallbackAMM", crate: "fallback-amm", id: CONFIG.ammId, role: "Constant-product USDC/XLM pool (SwapVenue impl)." },
+  { name: "USDC (SAC)", crate: "self-issued", id: CONFIG.usdcId, role: "Treasury asset — self-issued test USDC Stellar Asset Contract." },
+  { name: "wXLM (SAC)", crate: "native", id: CONFIG.wxlmId, role: "Wrapped XLM SAC — the pool's counter-asset." },
+];
+
+<p class="eyebrow">SDK reference · Soroban (live on testnet)</p>
+
+ShadowKit ships six Cargo crates. The contracts hold no developer trust: `GovVault` verifies proofs and exposes an approval gate; `AgentPolicy` is the on-chain lock that refuses any off-spec agent action.
+
+<Aside type="tip" title="Deployed & live on testnet">
+These are the current testnet ids from the post-deploy config. Click any address to open it on Stellar Explorer. The treasury/admin account is <a href={explorerAccount(CONFIG.treasuryAddr)} target="_blank" rel="noopener">{short(CONFIG.treasuryAddr)}</a>.
+</Aside>
+
+## Live deployment
+
+<CardGrid>
+  {deployed.map((c) => (
+    <LinkCard
+      title={`${c.name} · ${c.crate}`}
+      href={explorerContract(c.id)}
+      target="_blank"
+      description={`${c.role}  —  ${c.id}`}
+    />
+  ))}
+</CardGrid>
+
+## GovVault — `gov-vault`
+
+Holds no funds. Stores sealed votes and exposes no tally before close. Its `ProposalClosed` event is what the agent watcher subscribes to.
+
+**Public entrypoints**
+
+| Entrypoint | Returns | Description |
+| --- | --- | --- |
+| `init(env, admin, verifier, merkle_root, treasury_asset, quorum_cfg)` | → () | Initialize once. Quorum default: `min_voters=3`, `yes_must_exceed_no=true`. |
+| `create_proposal(env, action_spec, cap, deadline)` | → u32 | New sequential proposal id. `cap` bounds the action amount; `deadline` is a ledger-time unix second. |
+| `cast_vote(env, id, proof, pub_signals, sealed_ciphertext)` | → () | Verify proof, check nullifier + proposalId binding + merkle root, store the sealed vote. Exposes no tally. |
+| `close_and_reveal(env, id, revealed_yes_w, revealed_no_w, decryptions)` | → () | After deadline: re-aggregate submitted decryptions against stored ciphertexts → `Approved \| Rejected`. |
+| `is_approved(env, id)` | → bool | True iff `status == Approved` (read by AgentPolicy during auth). |
+| `cap_of(env, id) / action_of(env, id)` | → i128 / ActionSpec | Approved spending cap and the approved ActionSpec (read by AgentPolicy). |
+| `proposal(env, id)` | → ProposalView | Full read model. `weighted_yes/no` are None until revealed. |
+| `votes_cast(env, id)` | → u32 | Participation count (safe — no direction). |
+| `set_executor(env, executor)` | → () | Admin-auth: configure the AgentPolicy address allowed to call `mark_executed`. |
+| `mark_executed(env, id)` | → () | Single-shot replay guard; only callable by the configured executor. Sets status → Executed. |
+
+**Selected errors (the negative-test surface)**
+
+| GovError | Kind | Meaning |
+| --- | --- | --- |
+| `NullifierUsed = 7` | error | Double-vote: this nullifier was already cast. |
+| `WrongProposalId = 8` | error | Proof/nullifier bound to a different proposalId (replay). |
+| `InvalidProof = 9` | error | Groth16 verify returned false. |
+| `StaleMerkleRoot = 10` | error | Public `merkleRoot` signal != stored snapshot root. |
+| `DeadlinePassed = 5 / DeadlineNotReached = 6` | error | `cast_vote` after deadline / close before deadline. |
+| `RevealMismatch = 13` | error | Submitted decryptions inconsistent with the committed ciphertexts. |
+| `NotApproved = 15` | error | Action requires an Approved proposal. |
+
+## Groth16Verifier — `groth16-verifier`
+
+Stateless BLS12-381 Groth16 verifier; the verification key is compiled in. The convenience `verify(proof, pub_signals)` loads the embedded VK and checks the proof.
+
+```rust
+// pub_signals order is BINDING:
+//   [merkleRoot, nullifier, proposalId, sealedCommitmentHash]
+pub fn verify(env: Env, proof: Proof, pub_signals: Vec<Fr>) -> bool;
+```
+
+## AgentPolicy — `agent-policy` (the lock)
+
+An OpenZeppelin smart-account custom policy (crate `stellar-accounts`, git tag `v0.8.0-rc.1` — soroban-sdk 26). The treasury _is_ this smart-account wallet. Its `enforce()` cross-reads `GovVault` and authorizes a swap only if every gate below passes — otherwise it panics with a typed `PolicyError`.
+
+**The `enforce()` gates**
+
+| Gate | Reject code | Rule |
+| --- | --- | --- |
+| (a) approved | `NotApproved = 2` | `GovVault.is_approved(proposal_id)` must be true. |
+| (b) not executed | `AlreadyExecuted = 3` | Proposal must not already be Executed (single-shot). |
+| (c) target | `WrongTarget = 4` | Context contract must equal `approved_amm`. |
+| (d) asset_in | `WrongAsset = 5` | `asset_in` must equal `treasury_asset` AND `action.asset_in`. |
+| (e) cap | `OverCap = 6` | `amount_in` must be ≤ `GovVault.cap_of(proposal_id)`. |
+| (f) asset_out | `WrongAssetOut = 10` | `asset_out` must equal `action.asset_out` (no rerouting to an unapproved token). |
+| single context | `MultiCall = 8` | More than one Contract context in the auth batch is rejected. |
+
+<Aside type="danger" title="Defense in depth">
+The agent's client-side executor also re-checks the cap before signing, and `GovVault` enforces single-shot execution via `mark_executed`. A hallucinating agent cannot move funds: the only call the policy ever authorizes is `swap` on the approved venue, with the approved asset, under the approved cap, to the approved output.
+</Aside>
+
+## FallbackAMM & SwapVenue — `fallback-amm` / `swap-venue`
+
+`SwapVenue` is the venue-agnostic interface (`swap` + `reserves`) that every venue satisfies; `AgentPolicy` only ever authorizes `swap` on the configured venue. `FallbackAMM` is a constant-product USDC/XLM pool guaranteeing demo liquidity.
+
+| Entrypoint | Returns | Description |
+| --- | --- | --- |
+| `init(env, asset_a, asset_b)` | → () | Set the two pool assets (once). |
+| `add_liquidity(env, from, amount_a, amount_b)` | → () | Deposit liquidity (`from` must auth); updates reserves. |
+| `swap(env, asset_in, amount_in, min_out, to)` | → i128 | Constant-product (x·y=k) swap, 0.3% fee. Reverts `SlippageExceeded` if out < `min_out`. Implements SwapVenue. |
+| `reserves(env)` | → (i128, i128) | Current `(reserve_a, reserve_b)`. Implements SwapVenue. |
+
+<Aside type="note" title="Venue switch, not a code fork">
+A Soroswap adapter satisfies the same `SwapVenue` trait; selection is a config switch (`SWAP_VENUE=fallback|soroswap`), never a branch in `AgentPolicy`.
+</Aside>

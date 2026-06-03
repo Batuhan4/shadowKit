@@ -1,0 +1,195 @@
+/* ShadowKit docs — Starlight themed to the "Anonymity Set" system (see docs/DESIGN.md).
+   Charcoal + bone + ONE acid-lime "lit mark". Mathematical, flat, hairline rules, mono metadata.
+   Dark-only: every Starlight color variable is forced on :root regardless of data-theme, and the
+   theme toggle is removed (components.ThemeSelect override). NO purple, no gradients, no glows. */
+
+/* Same fonts as the rest of the site (Layout.astro loads these too, but Starlight pages don't
+   use Layout.astro — import them here so the docs match). */
+@import url("https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap");
+
+:root,
+:root[data-theme="dark"],
+:root[data-theme="light"] {
+  /* ---- accent: the one lit mark (lime) ---- */
+  --sl-color-accent-low: #243006; /* dim lime wash (sidebar active bg, etc.) */
+  --sl-color-accent: #b6f03a; /* THE accent */
+  --sl-color-accent-high: #d8ff8a; /* bright lime (link text on dark) */
+
+  /* ---- neutrals: charcoal + bone ---- */
+  --sl-color-white: #eceae3; /* headings / strong (bone) */
+  --sl-color-gray-1: #d9d6cf;
+  --sl-color-gray-2: #b6b3ac; /* body text */
+  --sl-color-gray-3: #7c7984; /* captions / muted */
+  --sl-color-gray-4: #4a4a52;
+  --sl-color-gray-5: #28282f; /* hairline */
+  --sl-color-gray-6: #1a1a20; /* panel */
+  --sl-color-gray-7: #15151a; /* sunk */
+  --sl-color-black: #0f0f12; /* page bg */
+
+  --sl-color-text: #b6b3ac;
+  --sl-color-text-accent: #d8ff8a;
+  --sl-color-text-invert: #10210a; /* text on a lime fill */
+
+  --sl-color-bg: #0f0f12;
+  --sl-color-bg-nav: color-mix(in oklab, #0f0f12 82%, transparent);
+  --sl-color-bg-sidebar: #0f0f12;
+  --sl-color-bg-inline-code: #1a1a20;
+  --sl-color-bg-accent: #b6f03a;
+
+  --sl-color-hairline: #28282f;
+  --sl-color-hairline-light: #28282f;
+  --sl-color-hairline-shade: #1a1a20;
+
+  /* ---- type ---- */
+  --sl-font: "Archivo", system-ui, -apple-system, sans-serif;
+  --sl-font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", monospace;
+
+  --sl-content-width: 50rem;
+
+  color-scheme: dark;
+}
+
+/* Big, tight, Archivo headlines — the site's register. */
+.sl-markdown-content h1,
+.sl-markdown-content h2,
+.sl-markdown-content h3,
+.sl-markdown-content h4,
+.content-panel h1 {
+  font-family: var(--sl-font);
+  color: var(--sl-color-white);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+}
+.content-panel h1 {
+  font-weight: 800;
+}
+
+/* Hairline rule under section headings — mathematical, flat. */
+.sl-markdown-content h2 {
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid var(--sl-color-hairline);
+}
+
+/* Links = lime, the signal. */
+.sl-markdown-content a {
+  color: var(--sl-color-accent-high);
+  text-underline-offset: 3px;
+}
+
+/* Mono metadata register: the eyebrow-style top callout, code, kbd, badges. */
+.sl-markdown-content code:not(pre code) {
+  font-family: var(--sl-font-mono);
+  color: var(--sl-color-accent-high);
+  background: var(--sl-color-bg-inline-code);
+  border: 1px solid var(--sl-color-hairline);
+  border-radius: 4px;
+  padding: 0.08em 0.36em;
+  font-size: 0.86em;
+}
+
+/* Code blocks (expressive-code): flat dark panel, hairline border. */
+.sl-markdown-content :is(.expressive-code, pre) {
+  border-radius: 8px;
+}
+.expressive-code .frame pre,
+.sl-markdown-content pre {
+  border: 1px solid var(--sl-color-hairline);
+  background: var(--sl-color-gray-7) !important;
+}
+
+/* Tables = ledger rows: hairline-separated, mono-ish, bone headers. */
+.sl-markdown-content table {
+  border-collapse: collapse;
+  width: 100%;
+}
+.sl-markdown-content :is(th, td) {
+  border-bottom: 1px solid var(--sl-color-hairline);
+  padding: 0.6rem 0.7rem;
+  text-align: left;
+  vertical-align: top;
+}
+.sl-markdown-content th {
+  color: var(--sl-color-white);
+  font-family: var(--sl-font-mono);
+  font-size: 0.74rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+/* Sidebar: active link is the lit mark. Mono labels = technical register. */
+.sidebar-content a[aria-current="page"] {
+  color: var(--sl-color-accent-high);
+  background: var(--sl-color-accent-low);
+  border-radius: 4px;
+}
+.sidebar-content .large,
+.sidebar-content summary span {
+  font-family: var(--sl-font-mono);
+  font-size: 0.74rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--sl-color-gray-3);
+}
+
+/* Eyebrow on each page (a mono kicker via the first paragraph's <strong> pattern is page-authored). */
+.sl-markdown-content .eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-family: var(--sl-font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--sl-color-accent);
+  margin: 0 0 0.4rem;
+}
+.sl-markdown-content .eyebrow::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  background: var(--sl-color-accent);
+  border-radius: 1px;
+}
+
+/* Asides (note/tip/caution/danger): flat, hairline, lime accent for tip; keep red rare. */
+.sl-markdown-content .starlight-aside {
+  border-inline-start-width: 3px;
+  border-radius: 0 6px 6px 0;
+  background: var(--sl-color-gray-7);
+}
+.sl-markdown-content .starlight-aside--tip,
+.sl-markdown-content .starlight-aside--note {
+  border-color: var(--sl-color-accent);
+}
+.sl-markdown-content .starlight-aside--tip .starlight-aside__title,
+.sl-markdown-content .starlight-aside--note .starlight-aside__title {
+  color: var(--sl-color-accent-high);
+}
+
+/* LinkCard / Card grid: panel + hairline, hover lifts border to lime (matches site cards). */
+.sl-markdown-content .sl-link-card,
+.sl-markdown-content .card {
+  background: var(--sl-color-gray-6);
+  border: 1px solid var(--sl-color-hairline);
+  border-radius: 14px;
+  transition: border-color 0.15s ease, transform 0.12s ease;
+}
+.sl-markdown-content .sl-link-card:hover,
+.sl-markdown-content .card:hover {
+  border-color: var(--sl-color-accent);
+  transform: translateY(-2px);
+}
+
+/* Site title = brand: bone + lime "Kit". */
+.site-title {
+  font-family: var(--sl-font);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+::selection {
+  background: color-mix(in oklab, var(--sl-color-accent) 32%, transparent);
+  color: var(--sl-color-white);
+}

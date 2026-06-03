@@ -246,10 +246,10 @@ export function FundApp({ projects, proposalId, poolUsdc }: FundAppProps) {
     <div className="fundapp">
       <div className="fundapp-bar">
         <div className="fundapp-bar-left">
-          <span className="badge badge-cyan">● Live on testnet</span>
+          <span className="tag tag-lime"><span className="fundapp-livedot" /> Live on testnet</span>
           <span className="mono fundapp-prop">proposal #{activeProposalId}</span>
           {sessionProposalId != null && (
-            <span className="badge badge-green">fresh session</span>
+            <span className="tag tag-lime">fresh session</span>
           )}
         </div>
         <WalletConnect
@@ -263,7 +263,7 @@ export function FundApp({ projects, proposalId, poolUsdc }: FundAppProps) {
       <div className="fundapp-session">
         <button
           type="button"
-          className="btn btn-primary"
+          className="btn btn-primary fundapp-session-btn"
           onClick={startSession}
           disabled={sessionLoading}
         >
@@ -319,8 +319,9 @@ export function FundApp({ projects, proposalId, poolUsdc }: FundAppProps) {
           />
         ) : (
           <div className="card fundapp-cta">
+            <span className="eyebrow">{address ? "Almost there" : "Step 1"}</span>
             <h3>{address ? "Pick a live project to vote" : "Connect a wallet to vote privately"}</h3>
-            <p>
+            <p className="muted">
               Your vote is sealed with a zero-knowledge proof (identity, weight & direction hidden) and
               timelock-encrypted so the running tally stays invisible until close.
             </p>
@@ -342,18 +343,21 @@ export function FundApp({ projects, proposalId, poolUsdc }: FundAppProps) {
       </section>
 
       <style>{`
-        .fundapp { display: flex; flex-direction: column; gap: 1.6rem; }
-        .fundapp-bar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+        .fundapp { display: flex; flex-direction: column; gap: clamp(1.2rem, 2.5vw, 1.7rem); }
+        .fundapp-bar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; padding-bottom: 1rem; border-bottom: 1px solid var(--line); }
         .fundapp-bar-left { display: inline-flex; align-items: center; gap: .7rem; flex-wrap: wrap; }
-        .fundapp-prop { color: var(--mist-2); font-size: .82rem; }
+        .fundapp-livedot { width: 6px; height: 6px; border-radius: 50%; background: var(--lime); display: inline-block; }
+        .fundapp-prop { color: var(--muted); font-size: .78rem; }
         .fundapp-session { display: inline-flex; align-items: center; gap: .9rem; flex-wrap: wrap; }
-        .fundapp-countdown { color: var(--cyan, #36d3ff); font-size: .82rem; }
-        .fundapp-countdown strong { color: var(--mist-1, #fff); }
-        .fundapp-session-hint { color: var(--mist-2); font-size: .8rem; }
-        .fundapp-werr { color: var(--red); font-size: .88rem; margin: 0; }
-        .fundapp-action { display: grid; grid-template-columns: 1.15fr 1fr; gap: 1.2rem; align-items: start; }
-        .fundapp-cta { display: flex; flex-direction: column; gap: .8rem; }
+        .fundapp-session-btn { min-height: 42px; }
+        .fundapp-countdown { color: var(--text-2); font-size: .8rem; letter-spacing: .02em; }
+        .fundapp-countdown strong { color: var(--lime); font-weight: 700; }
+        .fundapp-session-hint { color: var(--muted); font-size: .78rem; max-width: 48ch; }
+        .fundapp-werr { color: var(--red); font-family: var(--font-mono); font-size: .82rem; margin: 0; }
+        .fundapp-action { display: grid; grid-template-columns: 1.15fr 1fr; gap: clamp(1rem, 2vw, 1.4rem); align-items: start; }
+        .fundapp-cta { display: flex; flex-direction: column; gap: .7rem; }
         .fundapp-cta h3 { margin: 0; }
+        .fundapp-cta p { margin: 0; }
         @media (max-width: 880px) { .fundapp-action { grid-template-columns: 1fr; } }
       `}</style>
     </div>

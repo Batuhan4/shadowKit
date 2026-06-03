@@ -1,0 +1,104 @@
+---
+title: Packages
+description: The four TypeScript libraries that make up the ShadowKit browser + tooling SDK. All ESM, strict, Vitest-tested, and runnable in the browser or a Worker.
+---
+
+import { Aside } from "@astrojs/starlight/components";
+
+<p class="eyebrow">SDK reference · TypeScript</p>
+
+Each package is published under the `@shadowkit` scope. They share types via `@shadowkit/shared` and depend only on real crypto libraries (`snarkjs`, `tlock-js`, `drand-client`).
+
+```bash title="terminal"
+npm install @shadowkit/zk-prover @shadowkit/snapshot-tool \
+  @shadowkit/tally-reveal @shadowkit/shared
+```
+
+## @shadowkit/shared
+
+Cross-layer TypeScript types + the generated Soroban contract bindings. Import once, share everywhere.
+
+```ts
+import type { ProposalView, ActionSpec, PublicSignals } from "@shadowkit/shared";
+import { bindings } from "@shadowkit/shared";       // typed GovVault/AgentPolicy clients
+```
+
+| Export | Kind | Description |
+| --- | --- | --- |
+| `ProposalView` | interface | `id, actionSpec, cap, deadline, votesCast, status, weightedYes/No` (null until revealed). |
+| `ActionSpec` | interface | `{ kind: "swap", assetIn, assetOut, amount, minOut }` — all amounts i128 decimal strings. |
+| `PublicSignals` | interface | `{ merkleRoot, nullifier, proposalId, sealedCommitmentHash }` — field-element strings. |
+| `Groth16Proof` | interface | `pi_a/pi_b/pi_c` (curve `bls12381`, protocol `groth16`). |
+| `SealedVoteCiphertext` | interface | `{ round, ciphertext (base64 tlock), sealedCommitmentHash }`. |
+| `VoteDecryption` | interface | `{ direction 0\|1, weight, sealedCommitmentHash }` — one per sealed vote at reveal. |
+| `fieldToBe32Hex(decimal)` | → string | snarkjs decimal field → 32-byte big-endian hex for `Bls12381Fr` contract args. |
+| `bindings` | namespace | Generated typed Soroban contract clients (also `@shadowkit/shared/bindings`). |
+
+## @shadowkit/zk-prover
+
+Browser + Node proof generation and timelock sealing. The entry point builds the Groth16 proof and the sealed ciphertext together so the proof attests the ciphertext is well-formed.
+
+```ts
+import { generateVoteProof, verifyVoteProof, nullifierFor } from "@shadowkit/zk-prover";
+import { timelockSealVote, timelockUnsealVote } from "@shadowkit/zk-prover/seal";
+import { verifyAndAuthorize } from "@shadowkit/zk-prover/coordinator";
+```
+
+| Export | Returns | Description |
+| --- | --- | --- |
+| `generateVoteProof(input, artifacts, deadline, drand?)` | → VoteProofResult | `snarkjs.groth16.fullProve` over `vote.wasm` + `vote_final.zkey`, then tlock-seal (direction, weight). Returns proof, publicSignals, sealedCiphertext. |
+| `verifyVoteProof(vkey, publicSignals, proof)` | → boolean | Real `snarkjs.groth16.verify`; false for tampered proofs / wrong signals. |
+| `nullifierFor(secret, proposalId)` | → string | `Poseidon(secret, proposalId)` as a decimal field string (BLS12-381 wasm; async). |
+| `timelockSealVote(direction, weight, deadline, drand?)` | → `SealedVoteCiphertext & { sealKey }` | `tlock-js timelockEncrypt` to `round(deadline)` + the Poseidon commitment binding it (`./seal`). |
+| `timelockUnsealVote(sealed, drand?)` | → `{ direction, weight }` | `tlock-js timelockDecrypt`; throws if the round is not yet reached. |
+| `verifyAndAuthorize(vkey, publicSignals, proof)` | → `{ verified }` | Off-chain-verify coordinator (`./coordinator`); refuses any proof that does not verify. |
+| `roundForDeadline(deadline, drand?)` | → number | drand round at a unix deadline (`roundAt` over real quicknet chain info). |
+
+<Aside type="caution" title="Poseidon is async">
+`nullifierFor` and `buildSnapshot` are async because Poseidon is computed via the BLS12-381 circuit wasm (not `poseidon-lite`, which is BN254 and would silently produce the wrong field element). Always `await` them.
+</Aside>
+
+## @shadowkit/snapshot-tool
+
+Builds the Poseidon Merkle snapshot of eligible holders. The depth must equal the circuit's `TREE_DEPTH` (default 20).
+
+```ts
+import { buildSnapshot } from "@shadowkit/snapshot-tool";
+
+const snapshot = await buildSnapshot([
+  { secretCommit, weight: "1000" },
+  { secretCommit: other, weight: "500" },
+]);
+console.log(snapshot.root, snapshot.rootBe32Hex);
+const { merklePath, pathIndices } = snapshot.getPath(0);
+```
+
+| Export | Type | Description |
+| --- | --- | --- |
+| `buildSnapshot(holders, depth = 20)` | → Promise\<Snapshot\> | Poseidon Merkle tree; leaf = `Poseidon(Poseidon(secret), weight)`. Async (BLS12-381 wasm). |
+| `Snapshot.root` | string | Decimal field root (matches the circuit's `merkleRoot` public signal). |
+| `Snapshot.rootBe32Hex` | string | `0x..` 32-byte big-endian root for `GovVault.init`. |
+| `Snapshot.getPath(leafIndex)` | → `{ merklePath, pathIndices }` | Inclusion path for a leaf (sync — tree pre-materialized). |
+| `Snapshot.depth / leafCount` | number | Tree depth (== circuit `TREE_DEPTH`) and number of leaves. |
+
+## @shadowkit/tally-reveal
+
+At close, decrypts every sealed vote with real tlock-js and builds the on-chain reveal args. The chain re-aggregates the submitted decryptions and rejects any aggregate inconsistent with the committed ciphertexts.
+
+```ts
+import { revealTally, buildRevealArgs } from "@shadowkit/tally-reveal";
+
+const { yesW, noW } = await revealTally(sealedVotes);
+const args = await buildRevealArgs(proposalId, sealedVotes);
+// → GovVault.close_and_reveal(args.proposalId, args.revealedYesW, args.revealedNoW, args.decryptions)
+```
+
+| Export | Returns | Description |
+| --- | --- | --- |
+| `revealTally(sealedVotes, drand?)` | → `{ yesW, noW, decrypted[] }` | tlock-decrypt every sealed vote (real tlock-js) and sum weighted yes/no in stored order. |
+| `buildRevealArgs(proposalId, sealedVotes, drand?)` | → Promise\<RevealArgs\> | Produce the `close_and_reveal` args: one `VoteDecryption` per sealed vote + the recomputed aggregates. |
+| `buildRevealArgsForMode(...)` | → Promise\<RevealArgs\> | Mode-selectable reveal (timelock \| weight-unlinked \| 1p1v) for the degrade ladder. |
+
+<Aside type="tip" title="Order is significant">
+`buildRevealArgs` emits one `VoteDecryption` per sealed vote in the exact on-chain order, each carrying its `sealedCommitmentHash` so the contract can bind it to the stored ciphertext. See the [sealed voting flow](/docs/sealed-voting-flow).
+</Aside>

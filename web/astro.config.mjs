@@ -1,11 +1,60 @@
 // @ts-check
 import { defineConfig } from "astro/config";
 import react from "@astrojs/react";
+import starlight from "@astrojs/starlight";
 
-// foundation §1/§6: @astrojs/react integration; vite build target es2020 (tlock-js req at M5)
+// foundation §1/§6: @astrojs/react integration; vite build target es2020 (tlock-js req at M5).
+// docs: @astrojs/starlight serves the `docs` content collection. Files live under
+// src/content/docs/docs/** so every doc route is mounted at /docs/* (the site Nav links to /docs),
+// while the landing page + /demo/* React pages stay as ordinary src/pages/* routes.
 export default defineConfig({
-  integrations: [react()],
+  integrations: [
+    starlight({
+      title: "ShadowKit",
+      description:
+        "ZK + AI-agent governance infrastructure for Stellar — private sealed voting, then a bounded agent executes on-chain.",
+      social: [
+        {
+          icon: "github",
+          label: "GitHub",
+          href: "https://github.com/Batuhan4/shadowKit",
+        },
+      ],
+      // Anonymity-set theme (charcoal + bone + one lime mark) — see src/styles/starlight.css.
+      customCss: ["./src/styles/starlight.css"],
+      // Dark-only: force the dark palette and drop the light/dark toggle.
+      components: {
+        ThemeSelect: "./src/components/starlight/ThemeSelect.astro",
+      },
+      // Sidebar covers the full reading order; slugs resolve under /docs/*.
+      sidebar: [
+        { label: "Overview", link: "/docs" },
+        { label: "Architecture", link: "/docs/architecture" },
+        {
+          label: "SDK reference",
+          items: [
+            { label: "Packages", link: "/docs/packages" },
+            { label: "Contracts", link: "/docs/contracts" },
+            { label: "Circuits", link: "/docs/circuits" },
+            { label: "Agent", link: "/docs/agent" },
+            { label: "x402", link: "/docs/x402" },
+          ],
+        },
+        {
+          label: "Guides",
+          items: [
+            { label: "Sealed-voting flow", link: "/docs/sealed-voting-flow" },
+          ],
+        },
+      ],
+    }),
+    react(),
+  ],
+  // site: canonical origin (the public custom domain) — Starlight uses it for sitemap/canonical.
+  site: "https://shadowkit.nexvar.io",
   vite: {
-    build: { target: "es2020" },
+    // es2022 (not es2020): Starlight + some deps emit top-level await, which needs es2022+.
+    // tlock-js (the M5 reason for the old es2020 pin) works fine at es2022 (superset).
+    build: { target: "es2022" },
   },
 });

@@ -1,0 +1,91 @@
+---
+title: ShadowKit
+description: ZK + AI-agent governance infrastructure for Stellar. Members vote privately, the tally stays sealed behind a timelock until close, then an LLM-bounded agent executes the approved action on-chain — gated by policy.
+tableOfContents: false
+---
+
+import { Aside, Card, CardGrid, LinkCard } from "@astrojs/starlight/components";
+import { CONFIG, explorerContract, short } from "../../../lib/config.ts";
+
+<p class="eyebrow">Documentation · ZK + agentic governance</p>
+
+**ShadowKit** is an SDK for governance where the _how_ stays private and the _outcome_ is verifiable. Four primitives compose:
+
+- **Zero-knowledge votes** — a Groth16 (BLS12-381) circuit proves membership and a hidden weight; identity, weight, and direction never go on-chain.
+- **Timelock seal** — each vote's `(direction, weight)` is tlock-encrypted to the drand round at the deadline; the running tally is unknowable until close.
+- **On-chain governance** — a Soroban `GovVault` stores sealed votes, re-aggregates the revealed tally, and exposes an approval gate.
+- **Bounded AI agent** — an LLM plans the approved action; an on-chain policy contract rejects anything off-spec, so a hallucinating agent can never move funds wrongly.
+
+<Aside type="tip" title="Live on Stellar testnet">
+Every contract here is deployed and live. `GovVault` is at <a href={explorerContract(CONFIG.govVaultId)} target="_blank" rel="noopener">{short(CONFIG.govVaultId)}</a>. The demos run for real on every visit — no replay, no recording.
+</Aside>
+
+## Install
+
+ShadowKit ships as scoped npm packages plus the Soroban contract WASM. Browser proving + sealing path:
+
+```bash title="terminal"
+npm install @shadowkit/zk-prover @shadowkit/snapshot-tool \
+  @shadowkit/tally-reveal @shadowkit/shared
+```
+
+Agent + x402 services (server / Worker side):
+
+```bash title="terminal"
+npm install @shadowkit/agent @shadowkit/x402-shared \
+  @shadowkit/x402-premium-data @shadowkit/x402-api
+```
+
+<Aside type="note" title="Runtime">
+All TypeScript packages are ESM (`"type": "module"`), Node 26+, and run in the browser or a Cloudflare Worker over `fetch`. ZK proving uses real `snarkjs`; sealing uses real `tlock-js` + `drand-client`.
+</Aside>
+
+## Quickstart — seal a vote
+
+Build a snapshot of eligible holders, generate a zero-knowledge proof, and timelock-seal the vote — all client-side. **The witness never leaves the browser.**
+
+```ts title="seal-vote.ts"
+import { buildSnapshot } from "@shadowkit/snapshot-tool";
+import { generateVoteProof, nullifierFor } from "@shadowkit/zk-prover";
+
+// 1) Merkle snapshot of eligible holders (leaf = Poseidon(Poseidon(secret), weight)).
+const snapshot = await buildSnapshot([
+  { secretCommit, weight: "1000" },
+  // ...more holders
+]);
+const { merklePath, pathIndices } = snapshot.getPath(myLeafIndex);
+
+// 2) Prove + seal. direction/weight are hidden; only the 4 public signals are revealed.
+const { proof, publicSignals, sealedCiphertext } = await generateVoteProof(
+  {
+    secret,
+    merklePath,
+    pathIndices,
+    weight: "1000",
+    proposalId: "0",
+    direction: 1,               // yes — SEALED, never a public signal
+    merkleRoot: snapshot.root,
+  },
+  { wasmPath: "/zk/vote.wasm", zkeyPath: "/zk/vote_final.zkey" },
+  deadlineUnixSeconds,          // tlock round derived from this
+);
+
+// publicSignals = { merkleRoot, nullifier, proposalId, sealedCommitmentHash }
+// → submit GovVault.cast_vote(proposalId, proof, publicSignals, sealedCiphertext)
+```
+
+<Aside type="caution" title="Public-signal order is binding">
+The proof's public signals are always `[merkleRoot, nullifier, proposalId, sealedCommitmentHash]`. The circuit, the `GovVault` contract, and the TS bindings all agree on this order — see [Circuits](/docs/circuits).
+</Aside>
+
+## Where to next
+
+<CardGrid>
+  <LinkCard title="Architecture" href="/docs/architecture" description="How the ZK, timelock, governance, and agent layers fit together." />
+  <LinkCard title="Packages" href="/docs/packages" description="The four TypeScript libraries and their public APIs." />
+  <LinkCard title="Contracts" href="/docs/contracts" description="The Soroban contracts, deployed live on testnet, with explorer links." />
+  <LinkCard title="Circuits" href="/docs/circuits" description="The vote circuit, its constraints, and the binding public-signal order." />
+  <LinkCard title="Agent" href="/docs/agent" description="The watch → reveal → plan → policy → execute loop." />
+  <LinkCard title="x402 services" href="/docs/x402" description="Agent-pays + ShadowKit-sells, both over real x402 on Stellar." />
+  <LinkCard title="Sealed-voting flow" href="/docs/sealed-voting-flow" description="End-to-end: seal a vote, close, reveal, and execute." />
+</CardGrid>

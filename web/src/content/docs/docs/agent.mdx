@@ -1,0 +1,79 @@
+---
+title: Agent
+description: "The @shadowkit/agent loop: watch an approved proposal, reveal the tally, pay for data over x402, ask an LLM for a bounded plan, then execute a policy-gated swap on-chain."
+---
+
+import { Aside } from "@astrojs/starlight/components";
+
+<p class="eyebrow">SDK reference · bounded execution</p>
+
+The agent is the "execute in the light" half of ShadowKit. It is deliberately **bounded**: the LLM only proposes amounts within the approved cap, and the on-chain `AgentPolicy` rejects anything that isn't the exact approved action. The agent's signing key lives only as a server/Worker secret — never in the browser.
+
+## The loop
+
+| Phase | Module | Responsibility |
+| --- | --- | --- |
+| watch | Watcher | Poll RPC for `ProposalClosed(id, approved=true)` / `status == Approved`. |
+| reveal | tally-reveal | tlock-decrypt the sealed votes and re-aggregate the tally for close. |
+| data | DataClient | x402-pay the premium-data endpoint; returns `{ pair, price, signal }`. |
+| plan | GeminiPlanner | LLM decides `amountIn` / `minOut` (≤ cap) given the approved ActionSpec + market data. |
+| sign | Executor | Client-side cap guard, then build + sign the swap with the session key. |
+| submit | AgentPolicy | On-chain policy authorizes the swap (gates); `SwapVenue.swap` executes; `mark_executed` (single-shot). |
+
+```ts title="run-agent.ts"
+import { AgentRunner } from "@shadowkit/agent";
+
+const runner = new AgentRunner({
+  rpcUrl, networkPassphrase,
+  govVaultId, agentPolicyId, swapVenueId,
+  sessionSecretKey,          // ed25519 session key — server/Worker secret only
+  premiumDataUrl,            // x402-protected endpoint the agent pays
+  geminiApiKey,              // LLM key — server/Worker secret only
+  useDeterministicPlanner: false,
+});
+
+const { txHash } = await runner.run(proposalId, (log) => {
+  console.log(log.phase, log.message);   // stream to the AgentBoard terminal
+});
+```
+
+## Planner
+
+The primary planner is `GeminiPlanner` (model `gemini-3.1-flash-lite` via `@google/genai` streaming). It returns a JSON `ActionPlan`; the streamed reasoning deltas are emitted as `AgentLog{phase:"plan"}`. A `DeterministicPlanner` is the no-LLM fallback. The cap is enforced in three places — the prompt, the executor's client-side guard, and the on-chain policy.
+
+| Symbol | Kind | Description |
+| --- | --- | --- |
+| `GeminiPlanner` | implements Planner | Primary LLM planner (`@google/genai`, streaming). Hard cap is in the system instruction AND re-validated by the caller. |
+| `DeterministicPlanner` | implements Planner | No-LLM fallback: `amountIn = cap`, `minOut` from market price − slippage. |
+| `Planner.plan(spec, cap, market)` | → ActionPlan | `{ amountIn, minOut, reasoning }` — bounded by cap. |
+| `AgentDeps` | interface | Test-injection seam: watcher, dataClient, govReader, executor, planner factories. |
+
+<Aside type="caution" title="The LLM never has authority">
+The planner only _suggests_ an amount and slippage floor. Authority lives on-chain: `AgentPolicy.enforce` re-reads `GovVault` during authorization and rejects any plan that exceeds the cap, targets the wrong venue/asset, or isn't the approved action.
+</Aside>
+
+## Executor & policy gate
+
+The `Executor` applies a defense-in-depth cap guard, builds the swap invocation, signs with the session key, and submits. The on-chain `AgentPolicy` then enforces its gates (approved · not-executed · target · asset · cap) plus the output-asset binding. After a successful swap, `GovVault.mark_executed` makes execution single-shot.
+
+```ts
+// inside the loop, after planning:
+const { txHash } = await executor.executeSwap(plan, actionSpec, cap, proposalId);
+// throws "client cap guard: amountIn ... exceeds cap ..." before signing if the plan is over cap;
+// otherwise AgentPolicy.enforce validates it on-chain (PolicyError on any deviation).
+```
+
+## API surface
+
+| Export | Kind | Description |
+| --- | --- | --- |
+| `new AgentRunner(cfg, deps?)` | constructor | `deps` is an optional injection seam; omit it in production. |
+| `run(proposalId, onLog)` | → `{ txHash }` | Full loop, streaming `AgentLog` lines via `onLog`. |
+| `new Watcher({ rpcUrl, govVaultId })` | constructor | Subscribes for the proposal-approved trigger. |
+| `new DataClient({ url, signerSecret, network })` | constructor | x402-paying fetch over the premium-data endpoint. |
+| `new Executor({ rpcUrl, networkPassphrase, agentPolicyId, swapVenueId, sessionSecretKey })` | constructor | Builds, signs, and submits the policy-gated swap. |
+| `new LogBus()` | constructor | Typed `AgentLog` emit/subscribe — the SSE/WebSocket source for the terminal. |
+
+<Aside type="tip" title="Streaming to the terminal">
+`LogBus` emits typed `AgentLog` events (`reveal · data · plan · sign · submit · done · error`) which the demo streams over Server-Sent Events into the `AgentBoardTerminal` React island. The terminal renders the bounded plan, the policy verdict, and the real swap tx hash with an explorer link.
+</Aside>

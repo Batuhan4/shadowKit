@@ -104,16 +104,26 @@ const PHASE_LABEL: Record<AgentEventPhase, string> = {
   error: "ERR",
 };
 
+// One accent. Steps are muted; the lit moments (success, on-chain, done) are lime; failure is red.
 const PHASE_COLOR: Record<AgentEventPhase, string> = {
-  watch: "var(--veil)",
-  data: "var(--gold)",
-  plan: "var(--cyan)",
-  policy: "var(--cyan)",
-  submit: "var(--green)",
-  balances: "var(--mist)",
-  done: "var(--green)",
+  watch: "var(--muted)",
+  data: "var(--muted)",
+  plan: "var(--muted)",
+  policy: "var(--text-2)",
+  submit: "var(--lime)",
+  balances: "var(--muted)",
+  done: "var(--lime)",
   error: "var(--red)",
 };
+
+// The 5-stage flow shown as a mono stepper. Each maps to the event phase that "lights" it.
+const STAGES: { tag: string; phase: AgentEventPhase; hint: string }[] = [
+  { tag: "GOV", phase: "watch", hint: "read approved vote" },
+  { tag: "X402", phase: "data", hint: "pay for data" },
+  { tag: "PLAN", phase: "plan", hint: "bounded plan" },
+  { tag: "POLICY", phase: "policy", hint: "gate the plan" },
+  { tag: "CHAIN", phase: "submit", hint: "execute on-chain" },
+];
 
 type RunState = "idle" | "running" | "ok" | "blocked" | "error";
 
@@ -154,13 +164,29 @@ export function AgentRunPanel({ endpoint = "/api/agent/execute", streamRun }: Ag
   const after = events.find((e) => e.balancesAfter)?.balancesAfter ?? doneEvt?.balancesAfter;
   const running = state === "running";
 
+  // Stepper status: a stage is "lit" once its phase has streamed; "blocked" if POLICY denied; the
+  // last lit stage is "active" while running.
+  const seen = new Set(events.map((e) => e.phase));
+  const policyBlocked = verdict?.allowed === false;
+  const lastLitIdx = STAGES.reduce((acc, s, i) => (seen.has(s.phase) ? i : acc), -1);
+  const stageStatus = (
+    s: (typeof STAGES)[number],
+    i: number,
+  ): "done" | "active" | "blocked" | "idle" => {
+    if (s.phase === "policy" && policyBlocked) return "blocked";
+    if (s.phase === "submit" && policyBlocked) return "idle"; // never reached when blocked
+    if (!seen.has(s.phase)) return "idle";
+    if (running && i === lastLitIdx) return "active";
+    return "done";
+  };
+
   return (
-    <div className="agent-panel">
+    <div className="agent-panel" data-state={state}>
       <div className="agent-head">
-        <div className="agent-dots" aria-hidden="true">
-          <span /> <span /> <span />
-        </div>
-        <span className="agent-title mono">shadowkit-agent · bounded execution</span>
+        <span className="agent-title mono">
+          <span className={`agent-dot${running ? " live" : ""}`} aria-hidden="true" />
+          shadowkit-agent · bounded execution
+        </span>
         <button
           className="btn btn-primary agent-run"
           onClick={start}
@@ -171,11 +197,24 @@ export function AgentRunPanel({ endpoint = "/api/agent/execute", streamRun }: Ag
         </button>
       </div>
 
+      <ol className="agent-stepper mono" aria-label="agent stages">
+        {STAGES.map((s, i) => {
+          const st = stageStatus(s, i);
+          return (
+            <li key={s.tag} className="agent-stage" data-status={st}>
+              <span className="stage-mark" aria-hidden="true" />
+              <span className="stage-tag">{s.tag}</span>
+              <span className="stage-hint">{s.hint}</span>
+            </li>
+          );
+        })}
+      </ol>
+
       <div className="agent-log" ref={logRef} data-testid="agent-terminal" role="log" aria-live="polite">
         {events.length === 0 && !running ? (
           <div className="agent-empty mono">
-            $ awaiting run — the agent will read GovVault, pay x402, plan with Gemini, gate by policy,
-            then submit the swap on testnet.
+            $ idle — press Run. The agent reads the approved vote, pays x402, plans with Gemini, is
+            gated by policy, then submits the swap on testnet. Every run, live.
           </div>
         ) : null}
         {events.map((e, i) => (
@@ -218,6 +257,11 @@ export function AgentRunPanel({ endpoint = "/api/agent/execute", streamRun }: Ag
                 {verdict.allowed ? "● ALLOWED" : "● BLOCKED"}
               </div>
               <p className="art-reason mono">{verdict.message}</p>
+              <p className="art-caption mono">
+                {verdict.allowed
+                  ? "Plan is within the on-chain cap — execution may proceed."
+                  : "Plan violates the on-chain policy — no transaction is signed."}
+              </p>
             </div>
           ) : null}
 
@@ -260,51 +304,90 @@ export function AgentRunPanel({ endpoint = "/api/agent/execute", streamRun }: Ag
 }
 
 const PANEL_CSS = `
-.agent-panel { display: flex; flex-direction: column; gap: 1rem; }
+/* Anonymity Set — a clean charcoal console. Flat, hairline rules, mono metadata, one lime accent. */
+.agent-panel { display: flex; flex-direction: column; gap: clamp(0.9rem, 1.6vw, 1.2rem); }
+
+/* console header */
 .agent-head {
-  display: flex; align-items: center; gap: 0.8rem;
-  background: linear-gradient(180deg, var(--panel), var(--panel-2));
-  border: 1px solid var(--line); border-bottom: 0;
-  border-radius: var(--radius) var(--radius) 0 0; padding: 0.7rem 1rem;
+  display: flex; align-items: center; gap: 0.9rem; flex-wrap: wrap;
+  background: var(--panel); border: 1px solid var(--line); border-bottom: 0;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0; padding: 0.75rem 1.05rem;
 }
-.agent-dots { display: inline-flex; gap: 6px; }
-.agent-dots span { width: 11px; height: 11px; border-radius: 50%; background: var(--line); }
-.agent-dots span:nth-child(1) { background: rgba(255,107,129,0.55); }
-.agent-dots span:nth-child(2) { background: rgba(246,196,83,0.55); }
-.agent-dots span:nth-child(3) { background: rgba(86,217,138,0.55); }
-.agent-title { color: var(--mist); font-size: 0.78rem; }
-.agent-run { margin-left: auto; padding: 0.5em 1em; font-size: 0.85rem; }
-.agent-run[disabled] { opacity: 0.65; cursor: progress; }
+.agent-title { color: var(--text-2); font-size: 0.76rem; letter-spacing: 0.04em; display: inline-flex; align-items: center; gap: 0.6rem; }
+.agent-dot { width: 7px; height: 7px; border-radius: 1px; background: var(--line-2); flex: 0 0 auto; }
+.agent-dot.live { background: var(--lime); animation: flick 1.1s steps(2, jump-none) infinite; }
+.agent-run { margin-left: auto; padding: 0.6em 1.1em; font-size: 0.85rem; min-height: 42px; }
+.agent-run[disabled] { opacity: 0.6; cursor: progress; }
+
+/* the 5-stage stepper — lights up as events stream */
+.agent-stepper {
+  list-style: none; margin: -1px 0 0; padding: 0.55rem 0.6rem; display: grid;
+  grid-template-columns: repeat(5, 1fr); gap: 0.4rem;
+  background: var(--bg-2); border: 1px solid var(--line); border-bottom: 0;
+}
+.agent-stage {
+  display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto;
+  column-gap: 0.5rem; align-items: center; padding: 0.45rem 0.55rem;
+  border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel);
+  transition: border-color 0.18s, background 0.18s;
+}
+.stage-mark { grid-row: 1 / span 2; width: 9px; height: 9px; border-radius: 1px; background: var(--line-2); transition: background 0.18s, box-shadow 0.18s; }
+.stage-tag { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.1em; color: var(--muted); }
+.stage-hint { grid-column: 2; font-size: 0.6rem; letter-spacing: 0.02em; color: var(--muted); opacity: 0.8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.agent-stage[data-status="done"] .stage-mark { background: var(--lime); }
+.agent-stage[data-status="done"] .stage-tag { color: var(--text); }
+.agent-stage[data-status="active"] { border-color: var(--lime); }
+.agent-stage[data-status="active"] .stage-mark { background: var(--lime); box-shadow: 0 0 0 3px color-mix(in oklab, var(--lime) 24%, transparent); animation: flick 1.1s steps(2, jump-none) infinite; }
+.agent-stage[data-status="active"] .stage-tag { color: var(--text); }
+.agent-stage[data-status="blocked"] { border-color: color-mix(in oklab, var(--red) 55%, var(--line-2)); }
+.agent-stage[data-status="blocked"] .stage-mark { background: var(--red); }
+.agent-stage[data-status="blocked"] .stage-tag { color: var(--red); }
+
+/* the terminal — the centerpiece */
 .agent-log {
-  background: #07070d; border: 1px solid var(--line); border-radius: 0 0 var(--radius) var(--radius);
-  margin-top: -1rem; padding: 1rem 1.1rem; min-height: 240px; max-height: 420px; overflow-y: auto;
-  font-family: var(--font-mono); font-size: 0.82rem; line-height: 1.7;
-  box-shadow: inset 0 12px 30px -22px rgba(0,0,0,0.9);
+  background: var(--bg); border: 1px solid var(--line); border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+  padding: clamp(0.9rem, 1.6vw, 1.25rem) clamp(1rem, 1.8vw, 1.3rem);
+  min-height: 260px; max-height: 440px; overflow-y: auto;
+  font-family: var(--font-mono); font-size: 0.82rem; line-height: 1.75;
 }
-.agent-empty { color: var(--mist-2); }
-.agent-line { display: flex; gap: 0.7rem; align-items: baseline; animation: fadeUp 0.35s ease both; }
-.agent-tag { flex: 0 0 52px; font-size: 0.66rem; letter-spacing: 0.12em; font-weight: 700; padding-top: 1px; }
-.agent-msg { color: var(--ink); word-break: break-word; }
+.agent-empty { color: var(--muted); max-width: 60ch; }
+.agent-line { display: flex; gap: 0.85rem; align-items: baseline; animation: rise 0.32s cubic-bezier(0.2,0.7,0.2,1) both; }
+.agent-tag { flex: 0 0 56px; font-size: 0.66rem; letter-spacing: 0.12em; font-weight: 700; padding-top: 1px; }
+.agent-msg { color: var(--text-2); word-break: break-word; }
+.agent-line[data-phase="submit"] .agent-msg,
+.agent-line[data-phase="done"] .agent-msg { color: var(--lime); }
 .agent-line[data-phase="error"] .agent-msg { color: var(--red); }
-.agent-line[data-phase="done"] .agent-msg { color: var(--green); }
-.agent-caret { color: var(--cyan); animation: blink 1s steps(2) infinite; }
-@keyframes blink { 50% { opacity: 0; } }
-.agent-artifacts { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.9rem; }
-.art { padding: 1rem 1.1rem; }
-.art-label { display: block; margin-bottom: 0.6rem; }
-.art-grid { display: grid; grid-template-columns: auto 1fr; gap: 0.15rem 0.8rem; font-size: 0.82rem; }
-.art-grid dt { color: var(--mist); }
-.art-grid dd { margin: 0; color: var(--ink); text-align: right; }
-.art-reason { font-size: 0.82rem; color: var(--mist); margin: 0.7rem 0 0; }
-.verdict { font-family: var(--font-display); font-weight: 700; font-size: 1.05rem; letter-spacing: 0.02em; }
-.verdict.is-allowed { color: var(--green); }
+.agent-caret { color: var(--lime); animation: flick 1s steps(2, jump-none) infinite; }
+
+/* structured result cards */
+.agent-artifacts { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: clamp(0.8rem, 1.5vw, 1.1rem); }
+.art { padding: clamp(1rem, 1.8vw, 1.3rem); }
+.art-label { display: block; margin-bottom: 0.7rem; }
+.art-grid { display: grid; grid-template-columns: auto 1fr; gap: 0.2rem 0.9rem; font-size: 0.82rem; }
+.art-grid dt { color: var(--muted); }
+.art-grid dd { margin: 0; color: var(--text); text-align: right; }
+.art-reason { font-size: 0.8rem; color: var(--text-2); margin: 0.8rem 0 0; line-height: 1.5; }
+.art-caption { font-size: 0.68rem; color: var(--muted); margin: 0.6rem 0 0; line-height: 1.5; letter-spacing: 0.02em; }
+
+/* verdict — the BLOCKED/ALLOWED moment */
+.verdict { font-family: var(--font-mono); font-weight: 700; font-size: 1.02rem; letter-spacing: 0.06em; }
+.verdict.is-allowed { color: var(--lime); }
 .verdict.is-blocked { color: var(--red); }
-.verdict-card[data-allowed="false"] { border-color: rgba(255,107,129,0.5); box-shadow: 0 0 0 1px rgba(255,107,129,0.25); }
-.verdict-card[data-allowed="true"] { border-color: rgba(86,217,138,0.5); box-shadow: 0 0 0 1px rgba(86,217,138,0.2); }
-.tx { font-size: 0.78rem; color: var(--green); word-break: break-all; margin-bottom: 0.7rem; }
-.art-link { padding: 0.45em 0.9em; font-size: 0.8rem; }
-.bal-grid { display: flex; align-items: center; gap: 0.9rem; font-size: 0.8rem; }
-.bal-col { display: flex; flex-direction: column; gap: 0.15rem; }
-.bal-h { color: var(--mist-2); font-size: 0.68rem; letter-spacing: 0.1em; text-transform: uppercase; }
-.bal-arrow { color: var(--cyan); font-size: 1.2rem; }
+.verdict-card[data-allowed="true"] { border-color: color-mix(in oklab, var(--lime) 55%, var(--line-2)); }
+.verdict-card[data-allowed="false"] { border-color: color-mix(in oklab, var(--red) 55%, var(--line-2)); }
+
+/* on-chain swap */
+.tx { font-size: 0.78rem; color: var(--lime); word-break: break-all; margin-bottom: 0.85rem; }
+.art-link { padding: 0.55em 1em; font-size: 0.8rem; min-height: 42px; }
+
+/* treasury balances */
+.bal-grid { display: flex; align-items: center; gap: 1rem; font-size: 0.8rem; }
+.bal-col { display: flex; flex-direction: column; gap: 0.18rem; color: var(--text-2); }
+.bal-h { color: var(--muted); font-size: 0.66rem; letter-spacing: 0.12em; text-transform: uppercase; }
+.bal-arrow { color: var(--lime); font-size: 1.2rem; }
+
+@media (max-width: 720px) {
+  .agent-stepper { grid-template-columns: 1fr 1fr; }
+  .agent-run { flex: 1 1 100%; justify-content: center; }
+}
 `;
