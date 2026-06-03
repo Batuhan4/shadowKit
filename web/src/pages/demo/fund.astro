@@ -1,0 +1,142 @@
+---
+// /demo/fund — ShadowFund: the private community-fund voting demo (the Hack-Privacy showcase).
+// Members connect a Stellar wallet, cast a SEALED weighted vote (REAL client-side ZK proof hides
+// identity/weight/direction; REAL tlock hides the running tally), then Close & Reveal runs the tlock
+// reveal -> close_and_reveal on-chain -> the winning project receives the USDC pool. Fully live on
+// testnet (no replay fallback). The interactive surface is the FundApp React island.
+import Layout from "../../layouts/Layout.astro";
+import { FundApp } from "../../components/fund/FundApp";
+import { CONFIG, explorerContract, short } from "../../lib/config";
+import type { FundProject } from "../../components/fund/FundProjectGrid";
+
+// Candidate community-fund projects (SCF-styled). ONE is the LIVE on-chain round (live:true) — voting
+// targets the deployed GovVault proposal below; the rest are display candidates ("coming soon").
+const PROPOSAL_ID = 0;
+const POOL_USDC = "10000";
+const projects: FundProject[] = [
+  {
+    id: "shadowpay",
+    name: "ShadowPay",
+    category: "Payments",
+    askUsdc: POOL_USDC,
+    blurb: "Privacy-first mobile wallet for Stellar — sealed balances, shielded transfers.",
+    live: true,
+  },
+  {
+    id: "merkle-id",
+    name: "MerkleID",
+    category: "Identity",
+    askUsdc: "7500",
+    blurb: "Self-sovereign identity anchored to a Merkle snapshot on Soroban.",
+    live: false,
+  },
+  {
+    id: "aurora-amm",
+    name: "Aurora AMM",
+    category: "DeFi",
+    askUsdc: "12000",
+    blurb: "MEV-resistant AMM with timelock-batched order reveal.",
+    live: false,
+  },
+  {
+    id: "lumen-grants",
+    name: "Lumen Grants",
+    category: "Public goods",
+    askUsdc: "5000",
+    blurb: "Quadratic funding rounds with ZK-private contributions.",
+    live: false,
+  },
+];
+---
+
+<Layout
+  title="ShadowFund — private community-fund voting · ShadowKit"
+  description="Vote on community-fund projects privately: a real client-side zero-knowledge proof hides your identity, weight and direction, and a timelock seal keeps the running tally invisible until close. Live on Stellar testnet."
+>
+  <section class="hero container">
+    <span class="eyebrow reveal-up">Hack-Privacy showcase · live on testnet</span>
+    <h1 class="reveal-up">
+      Vote in the <span class="gradient-text">shadows.</span>
+    </h1>
+    <p class="lede reveal-up">
+      A community-fund round where whales can&apos;t see which way it&apos;s going. Each vote is a real
+      zero-knowledge proof — your identity, weight and direction stay hidden — and the running tally is
+      timelock-sealed until close. Then the seal breaks, the winner is revealed, and the USDC pool is
+      disbursed on-chain.
+    </p>
+    <div class="hero-meta reveal-up">
+      <span class="badge badge-veil">ZK membership proof</span>
+      <span class="badge badge-cyan">tlock / drand seal</span>
+      <span class="badge badge-gold">on-chain reveal</span>
+      <a class="mono hero-contract" href={explorerContract(CONFIG.govVaultId)} target="_blank" rel="noopener">
+        GovVault · {short(CONFIG.govVaultId)} ↗
+      </a>
+    </div>
+  </section>
+
+  <section class="app container">
+    <!-- client:only — the island needs the browser (wallet, snarkjs/wasm, tlock, RPC). -->
+    <FundApp client:only="react" projects={projects} proposalId={PROPOSAL_ID} poolUsdc={POOL_USDC} />
+  </section>
+
+  <section class="how container">
+    <h2>How a sealed vote works</h2>
+    <ol class="steps">
+      <li class="card">
+        <span class="step-n">01</span>
+        <h3>Prove membership privately</h3>
+        <p>
+          snarkjs builds a Groth16 proof that you&apos;re in the voter snapshot and computes a nullifier
+          — all in your browser. No address, weight or direction is revealed.
+        </p>
+      </li>
+      <li class="card">
+        <span class="step-n">02</span>
+        <h3>Timelock-seal the choice</h3>
+        <p>
+          Your (weight, direction) is encrypted with tlock to a future drand round — genuinely
+          undecryptable until the deadline. The chain stores only the ciphertext + a commitment.
+        </p>
+      </li>
+      <li class="card">
+        <span class="step-n">03</span>
+        <h3>Cast on-chain, tally sealed</h3>
+        <p>
+          GovVault verifies the proof on-chain and records the sealed vote. The running tally is never
+          exposed — only a participation count.
+        </p>
+      </li>
+      <li class="card">
+        <span class="step-n">04</span>
+        <h3>Reveal &amp; disburse</h3>
+        <p>
+          After close, every sealed vote is tlock-decrypted and re-aggregated on-chain. If approved, the
+          winning project receives the USDC pool — with a Stellar Explorer link.
+        </p>
+      </li>
+    </ol>
+  </section>
+</Layout>
+
+<style>
+  .hero { padding: 4.5rem 24px 2.5rem; max-width: 900px; }
+  .hero h1 { margin-bottom: 0.4em; }
+  .lede { font-size: 1.12rem; color: var(--mist); max-width: 64ch; }
+  .hero-meta { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin-top: 1.4rem; }
+  .hero-contract { color: var(--cyan); font-size: 0.82rem; }
+  .reveal-up { animation: fadeUp 0.7s cubic-bezier(0.2,0.7,0.2,1) both; }
+  .hero .reveal-up:nth-child(1) { animation-delay: 0.02s; }
+  .hero .reveal-up:nth-child(2) { animation-delay: 0.08s; }
+  .hero .reveal-up:nth-child(3) { animation-delay: 0.16s; }
+  .hero .reveal-up:nth-child(4) { animation-delay: 0.24s; }
+
+  .app { padding: 1rem 24px 2rem; }
+
+  .how { padding: 3rem 24px 1rem; }
+  .how h2 { margin-bottom: 1.6rem; }
+  .steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 1.1rem; }
+  .steps .card { display: flex; flex-direction: column; gap: 0.4rem; }
+  .step-n { font-family: var(--font-mono); color: var(--veil); font-size: 0.8rem; letter-spacing: 0.1em; }
+  .steps h3 { font-size: 1.05rem; margin: 0.2rem 0; }
+  .steps p { font-size: 0.9rem; margin: 0; }
+</style>

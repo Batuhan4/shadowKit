@@ -1,31 +1,30 @@
 ---
+// ShadowKit landing — the front door. Cinematic, Astro-first, minimal JS. Sections are split into
+// brand-consistent components under components/landing/, all driven by the testable landing-data model.
 import Layout from "../layouts/Layout.astro";
-import { CONFIG, short } from "../lib/config.ts";
+import Hero from "../components/landing/Hero.astro";
+import StoryFlow from "../components/landing/StoryFlow.astro";
+import DemoCards from "../components/landing/DemoCards.astro";
+import HowItWorks from "../components/landing/HowItWorks.astro";
+import Tracks from "../components/landing/Tracks.astro";
+import LiveStrip from "../components/landing/LiveStrip.astro";
+import FinalCta from "../components/landing/FinalCta.astro";
+
+const title = "ShadowKit — Vote in the shadows. Execute in the light.";
+const description =
+  "ZK + AI-agent governance infrastructure on Stellar / Soroban. Members vote privately with zero-knowledge proofs, the tally stays sealed behind a timelock until close, then an LLM-bounded agent executes the approved action on-chain — live on testnet.";
 ---
-<Layout>
-  <section class="container hero">
-    <span class="eyebrow reveal-up">ZK + AI governance · Stellar</span>
-    <h1 class="reveal-up">Vote in the shadows.<br /><span class="gradient-text">Execute in the light.</span></h1>
-    <p class="lede reveal-up">
-      Members vote privately — zero-knowledge proofs hide identity, weight, and direction. The tally
-      stays <b>sealed</b> behind a timelock until voting closes. Then an LLM-bounded agent executes the
-      approved action on-chain, gated by policy so a hallucinating agent can never move funds wrongly.
-    </p>
-    <div class="cta reveal-up">
-      <a class="btn btn-primary" href="/demo/fund">Try ShadowFund →</a>
-      <a class="btn btn-ghost" href="/demo/agent">Watch AgentBoard</a>
-    </div>
-    <p class="note mono">Live on Stellar testnet · GovVault {short(CONFIG.govVaultId)}</p>
-  </section>
+<Layout title={title} description={description}>
+  <Hero />
+  <hr class="divider container-divider" />
+  <StoryFlow />
+  <DemoCards />
+  <HowItWorks />
+  <Tracks />
+  <LiveStrip />
+  <FinalCta />
 </Layout>
 
 <style>
-  .hero { padding: clamp(3rem, 9vw, 7rem) 0 4rem; max-width: 880px; }
-  .lede { font-size: 1.18rem; color: var(--mist); max-width: 60ch; margin: 1.4rem 0 2rem; }
-  .lede b { color: var(--ink); }
-  .cta { display: flex; gap: 0.8rem; flex-wrap: wrap; }
-  .note { color: var(--mist-2); font-size: 0.8rem; margin-top: 1.6rem; }
-  .reveal-up:nth-child(2) { animation-delay: 0.06s; }
-  .reveal-up:nth-child(3) { animation-delay: 0.12s; }
-  .reveal-up:nth-child(4) { animation-delay: 0.18s; }
+  .container-divider { width: 100%; max-width: var(--maxw); margin: 0 auto; opacity: 0.6; }
 </style>

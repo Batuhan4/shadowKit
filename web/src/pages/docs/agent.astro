@@ -1,0 +1,104 @@
+---
+import DocsLayout from "../../layouts/DocsLayout.astro";
+import CodeBlock from "../../components/docs/CodeBlock.astro";
+import Callout from "../../components/docs/Callout.astro";
+import ApiTable from "../../components/docs/ApiTable.astro";
+
+const loopRows = [
+  { name: "watch", type: "Watcher", desc: "Poll RPC for ProposalClosed(id, approved=true) / status == Approved." },
+  { name: "reveal", type: "tally-reveal", desc: "tlock-decrypt the sealed votes and re-aggregate the tally for close." },
+  { name: "data", type: "DataClient", desc: "x402-pay the premium-data endpoint; returns { pair, price, signal }." },
+  { name: "plan", type: "GeminiPlanner", desc: "LLM decides amountIn / minOut (≤ cap) given the approved ActionSpec + market data." },
+  { name: "sign", type: "Executor", desc: "Client-side cap guard, then build + sign the swap with the session key." },
+  { name: "submit", type: "AgentPolicy", desc: "On-chain policy authorizes the swap (5 gates); SwapVenue.swap executes; mark_executed (single-shot)." },
+];
+
+const plannerRows = [
+  { name: "GeminiPlanner", type: "implements Planner", desc: "Primary LLM planner (@google/genai, streaming). Hard cap is in the system instruction AND re-validated by the caller." },
+  { name: "DeterministicPlanner", type: "implements Planner", desc: "No-LLM fallback: amountIn = cap, minOut from market price − slippage." },
+  { name: "Planner.plan(spec, cap, market)", type: "→ ActionPlan", desc: "{ amountIn, minOut, reasoning } — bounded by cap." },
+  { name: "AgentDeps", type: "interface", desc: "Test-injection seam: watcher, dataClient, govReader, executor, planner factories." },
+];
+
+const apiRows = [
+  { name: "new AgentRunner(cfg, deps?)", type: "constructor", desc: "deps is an optional injection seam; omit it in production." },
+  { name: "run(proposalId, onLog)", type: "→ { txHash }", desc: "Full loop, streaming AgentLog lines via onLog." },
+  { name: "new Watcher({ rpcUrl, govVaultId })", type: "constructor", desc: "Subscribes for the proposal-approved trigger." },
+  { name: "new DataClient({ url, signerSecret, network })", type: "constructor", desc: "x402-paying fetch over the premium-data endpoint." },
+  { name: "new Executor({ rpcUrl, networkPassphrase, agentPolicyId, swapVenueId, sessionSecretKey })", type: "constructor", desc: "Builds, signs, and submits the policy-gated swap." },
+  { name: "new LogBus()", type: "constructor", desc: "Typed AgentLog emit/subscribe — the SSE/WebSocket source for the terminal." },
+];
+---
+<DocsLayout
+  title="Agent"
+  eyebrow="SDK reference"
+  description="The @shadowkit/agent loop: watch an approved proposal, reveal the tally, pay for data over x402, ask an LLM for a bounded plan, then execute a policy-gated swap on-chain."
+  href="/docs/agent"
+>
+  <p>
+    The agent is the "execute in the light" half of ShadowKit. It is deliberately
+    <strong>bounded</strong>: the LLM only proposes amounts within the approved cap, and the on-chain
+    <code>AgentPolicy</code> rejects anything that isn't the exact approved action. The agent's signing
+    key lives only as a server/Worker secret — never in the browser.
+  </p>
+
+  <h2>The loop</h2>
+  <ApiTable rows={loopRows} cols={["Phase", "Module", "Responsibility"]} />
+
+  <CodeBlock lang="ts" file="run-agent.ts" code={`import { AgentRunner } from "@shadowkit/agent";
+
+const runner = new AgentRunner({
+  rpcUrl, networkPassphrase,
+  govVaultId, agentPolicyId, swapVenueId,
+  sessionSecretKey,          // ed25519 session key — server/Worker secret only
+  premiumDataUrl,            // x402-protected endpoint the agent pays
+  geminiApiKey,              // LLM key — server/Worker secret only
+  useDeterministicPlanner: false,
+});
+
+const { txHash } = await runner.run(proposalId, (log) => {
+  console.log(log.phase, log.message);   // stream to the AgentBoard terminal
+});`} />
+
+  <h2>Planner</h2>
+  <p>
+    The primary planner is <code>GeminiPlanner</code> (model <code>gemini-3.1-flash-lite</code> via
+    <code>@google/genai</code> streaming). It returns a JSON <code>ActionPlan</code>; the streamed
+    reasoning deltas are emitted as <code>AgentLog&#123;phase:"plan"&#125;</code>. A
+    <code>DeterministicPlanner</code> is the no-LLM fallback. The cap is enforced in three places — the
+    prompt, the executor's client-side guard, and the on-chain policy.
+  </p>
+  <ApiTable rows={plannerRows} cols={["Symbol", "Kind", "Description"]} />
+
+  <Callout type="warn" title="The LLM never has authority">
+    <p>
+      The planner only <em>suggests</em> an amount and slippage floor. Authority lives on-chain:
+      <code>AgentPolicy.enforce</code> re-reads <code>GovVault</code> during authorization and rejects any
+      plan that exceeds the cap, targets the wrong venue/asset, or isn't the approved action.
+    </p>
+  </Callout>
+
+  <h2>Executor &amp; policy gate</h2>
+  <p>
+    The <code>Executor</code> applies a defense-in-depth cap guard, builds the swap invocation, signs with
+    the session key, and submits. The on-chain <code>AgentPolicy</code> then enforces the five gates
+    (approved · not-executed · target · asset · cap) plus the output-asset binding. After a successful
+    swap, <code>GovVault.mark_executed</code> makes execution single-shot.
+  </p>
+  <CodeBlock lang="ts" code={`// inside the loop, after planning:
+const { txHash } = await executor.executeSwap(plan, actionSpec, cap, proposalId);
+// throws "client cap guard: amountIn ... exceeds cap ..." before signing if the plan is over cap;
+// otherwise AgentPolicy.enforce validates it on-chain (PolicyError on any deviation).`} />
+
+  <h2>API surface</h2>
+  <ApiTable rows={apiRows} cols={["Export", "Kind", "Description"]} />
+
+  <Callout type="tip" title="Streaming to the terminal">
+    <p>
+      <code>LogBus</code> emits typed <code>AgentLog</code> events (<code>reveal · data · plan · sign ·
+      submit · done · error</code>) which the demo streams over Server-Sent Events into the
+      <code>AgentBoardTerminal</code> React island. The terminal renders the bounded plan, the policy
+      verdict, and the real swap tx hash with an explorer link.
+    </p>
+  </Callout>
+</DocsLayout>

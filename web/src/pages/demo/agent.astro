@@ -1,0 +1,148 @@
+---
+import Layout from "../../layouts/Layout.astro";
+import { AgentRunPanel } from "../../components/agent/AgentRunPanel.tsx";
+import { CONFIG, short, explorerContract, explorerAccount } from "../../lib/config.ts";
+
+const steps = [
+  {
+    tag: "GOV",
+    color: "veil",
+    title: "Read the vote",
+    body: "The agent reads GovVault on testnet. If the demo proposal is not APPROVED, it refuses — 403, no transaction.",
+  },
+  {
+    tag: "X402",
+    color: "gold",
+    title: "Pay for data",
+    body: "It pays this site's premium-data endpoint over x402 (USDC on testnet) to fetch the market quote it will reason over.",
+  },
+  {
+    tag: "PLAN",
+    color: "cyan",
+    title: "Bounded plan",
+    body: "Gemini (server-side, key never in the browser) returns a structured plan: action, venue, amountIn, minOut — and why.",
+  },
+  {
+    tag: "POLICY",
+    color: "cyan",
+    title: "Gate the plan",
+    body: "The policy mirror checks the plan against the on-chain cap, assets, and approval. A hallucinated or over-cap plan is BLOCKED. No transaction.",
+  },
+  {
+    tag: "CHAIN",
+    color: "green",
+    title: "Execute in the light",
+    body: "Only an allowed plan is signed by the executor key (a Worker secret) and submitted on-chain — real tx hash, real balance movement.",
+  },
+];
+---
+
+<Layout
+  title="AgentBoard — ShadowKit"
+  description="Watch a live AI agent read an approved DAO vote, pay for data over x402, plan a bounded swap with Gemini, get gated by an on-chain policy, and execute it on Stellar testnet — every run, fully live."
+>
+  <section class="container head">
+    <div class="head-row">
+      <span class="eyebrow reveal-up">Hack-Agentic · live on testnet</span>
+      <div class="badges reveal-up">
+        <span class="badge badge-cyan">Agentic</span>
+        <span class="badge badge-green">No replay · fully live</span>
+      </div>
+    </div>
+    <h1 class="reveal-up">The <span class="gradient-text">AgentBoard</span></h1>
+    <p class="lede reveal-up">
+      An AI agent takes the DAO's <b>already-approved</b> decision and executes it — but it is held on a
+      short leash. It pays for its own market data over x402, reasons with Gemini, and every plan it
+      produces must pass an on-chain spending policy before a single stroop can move. A hallucinating
+      agent literally <b>cannot</b> move treasury funds the wrong way.
+    </p>
+  </section>
+
+  <section class="container run">
+    <AgentRunPanel client:load endpoint="/api/agent/execute" />
+    <p class="run-note mono">
+      Runs server-side in a Cloudflare Pages Function. The Gemini key and the executor signing key
+      never reach your browser.
+    </p>
+  </section>
+
+  <section class="container explain">
+    <div class="explain-head">
+      <h2>What is <span class="gradient-text">bounded execution?</span></h2>
+      <p>
+        Autonomy without guardrails is a liability. ShadowKit gives the agent exactly two degrees of
+        freedom — how much to swap and the slippage floor — and bounds both. The DAO already decided
+        <i>whether</i> to act and <i>which</i> assets are in play; the agent only decides <i>how</i>,
+        and two independent guards (a fail-fast policy mirror and the on-chain AgentPolicy that runs
+        inside the treasury wallet's authorization check) must both accept the plan or nothing happens.
+      </p>
+    </div>
+    <ol class="steps">
+      {
+        steps.map((s) => (
+          <li class="step card">
+            <span class={`step-tag badge badge-${s.color}`}>{s.tag}</span>
+            <h3>{s.title}</h3>
+            <p>{s.body}</p>
+          </li>
+        ))
+      }
+    </ol>
+  </section>
+
+  <section class="container wiring">
+    <h2>Live wiring</h2>
+    <p class="wiring-sub">The contracts this demo touches — deployed and live on Stellar testnet.</p>
+    <dl class="wiring-grid mono">
+      <dt>GovVault</dt>
+      <dd><a href={explorerContract(CONFIG.govVaultId)} target="_blank" rel="noopener">{short(CONFIG.govVaultId)}</a></dd>
+      <dt>AgentPolicy</dt>
+      <dd><a href={explorerContract(CONFIG.agentPolicyId)} target="_blank" rel="noopener">{short(CONFIG.agentPolicyId)}</a></dd>
+      <dt>Swap venue (AMM)</dt>
+      <dd><a href={explorerContract(CONFIG.ammId)} target="_blank" rel="noopener">{short(CONFIG.ammId)}</a></dd>
+      <dt>USDC (assetIn)</dt>
+      <dd><a href={explorerContract(CONFIG.usdcId)} target="_blank" rel="noopener">{short(CONFIG.usdcId)}</a></dd>
+      <dt>wXLM (assetOut)</dt>
+      <dd><a href={explorerContract(CONFIG.wxlmId)} target="_blank" rel="noopener">{short(CONFIG.wxlmId)}</a></dd>
+      <dt>Treasury</dt>
+      <dd><a href={explorerAccount(CONFIG.treasuryAddr)} target="_blank" rel="noopener">{short(CONFIG.treasuryAddr)}</a></dd>
+    </dl>
+  </section>
+</Layout>
+
+<style>
+  .head { padding: clamp(2.4rem, 7vw, 5rem) 0 1.5rem; max-width: 860px; }
+  .head-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+  .badges { display: flex; gap: 0.5rem; }
+  .lede { font-size: 1.12rem; color: var(--mist); max-width: 64ch; margin: 1.2rem 0 0; }
+  .lede b { color: var(--ink); }
+  .reveal-up:nth-child(2) { animation-delay: 0.05s; }
+  .reveal-up:nth-child(3) { animation-delay: 0.1s; }
+
+  .run { padding: 1.5rem 0 1rem; }
+  .run-note { color: var(--mist-2); font-size: 0.78rem; margin-top: 0.9rem; }
+
+  .explain { padding: 3rem 0 1.5rem; }
+  .explain-head { max-width: 760px; margin-bottom: 1.8rem; }
+  .explain-head h2 { margin-bottom: 0.7rem; }
+  .explain-head p { color: var(--mist); }
+  .explain-head i { color: var(--ink); font-style: italic; }
+  .steps {
+    list-style: none; padding: 0; margin: 0; counter-reset: step;
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 0.9rem;
+  }
+  .step { position: relative; }
+  .step-tag { margin-bottom: 0.7rem; }
+  .step h3 { font-size: 1.05rem; margin-bottom: 0.35rem; }
+  .step p { font-size: 0.88rem; color: var(--mist); margin: 0; }
+
+  .wiring { padding: 2.5rem 0 4rem; }
+  .wiring-sub { color: var(--mist); margin-bottom: 1.2rem; }
+  .wiring-grid {
+    display: grid; grid-template-columns: max-content 1fr; gap: 0.5rem 1.4rem;
+    border: 1px solid var(--line); border-radius: var(--radius); padding: 1.2rem 1.4rem;
+    background: linear-gradient(180deg, var(--panel), var(--panel-2)); max-width: 560px; font-size: 0.85rem;
+  }
+  .wiring-grid dt { color: var(--mist); }
+  .wiring-grid dd { margin: 0; }
+</style>

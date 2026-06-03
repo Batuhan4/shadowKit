@@ -1,0 +1,137 @@
+---
+import DocsLayout from "../../layouts/DocsLayout.astro";
+import CodeBlock from "../../components/docs/CodeBlock.astro";
+import Callout from "../../components/docs/Callout.astro";
+import ApiTable from "../../components/docs/ApiTable.astro";
+
+const publicSignals = [
+  { name: "[0] merkleRoot", type: "input", desc: "The snapshot root the voter proves membership in." },
+  { name: "[1] nullifier", type: "output", desc: "Poseidon(secret, proposalId) — deterministic per voter+proposal; prevents double-voting." },
+  { name: "[2] proposalId", type: "input", desc: "Binds the proof to one proposal (anti-replay across proposals)." },
+  { name: "[3] sealedCommitmentHash", type: "input", desc: "Poseidon(direction, weight, sealKey) — commits to the timelock-sealed ciphertext." },
+];
+
+const privateInputs = [
+  { name: "secret", type: "field", desc: "Voter's private scalar (the leaf preimage)." },
+  { name: "weight", type: "field", desc: "Token weight — hidden; revealed only at close." },
+  { name: "direction", type: "bit", desc: "Vote choice {0,1} — sealed off-circuit, never public." },
+  { name: "pathElements[20]", type: "field[]", desc: "Merkle sibling hashes, root → leaf." },
+  { name: "pathIndices[20]", type: "bit[]", desc: "Left/right selector per tree level." },
+  { name: "sealKey", type: "field", desc: "Randomness binding the ciphertext commitment." },
+];
+
+const constraints = [
+  { name: "1. leaf", type: "constraint", desc: "leaf = Poseidon(Poseidon(secret), weight)." },
+  { name: "2. membership", type: "constraint", desc: "MerkleTreeChecker(20): leaf is in the tree under merkleRoot." },
+  { name: "3. nullifier", type: "constraint", desc: "nullifier = Poseidon(secret, proposalId)." },
+  { name: "4. direction bit", type: "constraint", desc: "direction · (direction − 1) === 0 (binary)." },
+  { name: "5. seal well-formedness", type: "constraint", desc: "sealedCommitmentHash === Poseidon(direction, weight, sealKey)." },
+];
+---
+<DocsLayout
+  title="Circuits"
+  eyebrow="SDK reference"
+  description="The vote circuit (Circom 2.2.1, Groth16 over BLS12-381), its constraints, and the binding public-signal order shared by the circuit, the contract, and the bindings."
+  href="/docs/circuits"
+>
+  <p>
+    The <code>vote</code> circuit proves four things in zero knowledge: the voter is in the snapshot, the
+    nullifier is correctly derived (so they can vote at most once), the direction is a valid bit, and the
+    sealed ciphertext is well-formed — all without revealing identity, weight, or direction.
+  </p>
+
+  <h2>The circuit</h2>
+  <CodeBlock lang="circom" file="circuits/vote/vote.circom" code={`pragma circom 2.2.1;
+include "poseidon.circom";   // circomlib Poseidon
+include "merkle.circom";     // MerkleTreeChecker(TREE_DEPTH)
+
+template Vote(TREE_DEPTH) {
+  // ---- PUBLIC SIGNALS (order BINDING) ----
+  signal input  merkleRoot;            // [0] snapshot root
+  signal input  proposalId;            // [2] binds proof to a proposal (anti-replay)
+  signal input  sealedCommitmentHash;  // [3] commits to the sealed ciphertext
+  signal output nullifier;             // [1] = Poseidon(secret, proposalId)
+
+  // ---- PRIVATE INPUTS ----
+  signal input secret, weight, direction, sealKey;
+  signal input pathElements[TREE_DEPTH];
+  signal input pathIndices[TREE_DEPTH];
+
+  // 1) leaf = Poseidon(Poseidon(secret), weight)
+  component secretCommit = Poseidon(1); secretCommit.inputs[0] <== secret;
+  component leaf = Poseidon(2);
+  leaf.inputs[0] <== secretCommit.out; leaf.inputs[1] <== weight;
+
+  // 2) Merkle membership
+  component mt = MerkleTreeChecker(TREE_DEPTH);
+  mt.leaf <== leaf.out; mt.root <== merkleRoot;
+  for (var i = 0; i < TREE_DEPTH; i++) {
+    mt.pathElements[i] <== pathElements[i];
+    mt.pathIndices[i]  <== pathIndices[i];
+  }
+
+  // 3) nullifier = Poseidon(secret, proposalId)
+  component nf = Poseidon(2);
+  nf.inputs[0] <== secret; nf.inputs[1] <== proposalId; nullifier <== nf.out;
+
+  // 4) direction is a bit
+  direction * (direction - 1) === 0;
+
+  // 5) sealed-vote well-formedness
+  component sc = Poseidon(3);
+  sc.inputs[0] <== direction; sc.inputs[1] <== weight; sc.inputs[2] <== sealKey;
+  sealedCommitmentHash === sc.out;
+}
+component main {public [merkleRoot, proposalId, sealedCommitmentHash]} = Vote(20);`} />
+
+  <Callout type="warn" title="Public-signal order is binding everywhere">
+    <p>
+      snarkjs emits the circuit's single <em>output</em> (<code>nullifier</code>) first, then the declared
+      <code>public</code> inputs. The resulting public-signal vector is, and must stay,
+      <code>[merkleRoot, nullifier, proposalId, sealedCommitmentHash]</code> — the same order used by
+      <code>GovVault.cast_vote</code>, <code>Groth16Verifier.verify</code>, and the
+      <code>PublicSignals</code> type in <a href="/docs/packages">@shadowkit/shared</a>.
+    </p>
+  </Callout>
+
+  <h2>Public signals</h2>
+  <ApiTable rows={publicSignals} cols={["Signal", "Kind", "Meaning"]} />
+
+  <h2>Private inputs</h2>
+  <ApiTable rows={privateInputs} cols={["Input", "Type", "Meaning"]} />
+
+  <h2>Constraints</h2>
+  <ApiTable rows={constraints} cols={["#", "Kind", "Statement"]} />
+
+  <Callout type="note" title="Tree depth is shared">
+    <p>
+      <code>TREE_DEPTH</code> is 20 and must equal <code>@shadowkit/snapshot-tool</code>'s default depth.
+      The snapshot tree and the circuit's <code>MerkleTreeChecker</code> must agree, or membership proofs
+      fail.
+    </p>
+  </Callout>
+
+  <h2>Artifacts</h2>
+  <p>The proving artifacts are served as static assets so the browser can prove client-side:</p>
+  <ApiTable
+    cols={["Artifact", "Path", "Use"]}
+    rows={[
+      { name: "vote.wasm", type: "/zk/vote.wasm", desc: "Witness generator (snarkjs.groth16.fullProve)." },
+      { name: "vote_final.zkey", type: "/zk/vote_final.zkey", desc: "Groth16 proving key." },
+      { name: "verification_key.json", type: "/zk/verification_key.json", desc: "snarkjs VK; source for the on-chain embedded VK." },
+    ]}
+  />
+  <CodeBlock lang="ts" code={`const { proof, publicSignals } = await generateVoteProof(
+  input,
+  { wasmPath: "/zk/vote.wasm", zkeyPath: "/zk/vote_final.zkey" },
+  deadlineUnixSeconds,
+);`} />
+
+  <Callout type="ok" title="Same VK on both sides">
+    <p>
+      The on-chain <code>Groth16Verifier</code> embeds a VK built from this exact
+      <code>verification_key.json</code>, so a proof that verifies off-chain with
+      <code>verifyVoteProof</code> also verifies on-chain.
+    </p>
+  </Callout>
+</DocsLayout>

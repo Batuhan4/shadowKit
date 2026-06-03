@@ -1,0 +1,43 @@
+---
+// Live-on-testnet strip: 4 real, deployed contract ids as stellar.expert links (mono).
+import { buildLiveContracts } from "./landing-data.ts";
+import { short } from "../../lib/config.ts";
+const contracts = buildLiveContracts();
+---
+<section class="strip">
+  <div class="container">
+    <div class="strip-head">
+      <span class="badge badge-green"><span class="dot" aria-hidden="true"></span> Deployed & live on Stellar testnet</span>
+      <span class="hint mono">no replay, no mock — every demo runs against these contracts</span>
+    </div>
+    <div class="ids">
+      {contracts.map((c) => (
+        <a class="id" href={c.href} target="_blank" rel="noopener">
+          <span class="id-label">{c.label}</span>
+          <span class="id-val mono">{short(c.id, 6, 6)}</span>
+        </a>
+      ))}
+    </div>
+  </div>
+</section>
+
+<style>
+  .strip { padding: clamp(2rem, 5vw, 3.5rem) 0; }
+  .strip-head { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.2rem; }
+  .strip-head .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px var(--green); }
+  .hint { color: var(--mist-2); font-size: 0.74rem; letter-spacing: 0.02em; }
+
+  .ids { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.8rem; }
+  .id {
+    display: flex; flex-direction: column; gap: 0.3rem; padding: 0.95rem 1.05rem;
+    border: 1px solid var(--line); border-radius: var(--radius-sm);
+    background: rgba(255,255,255,0.02); color: var(--ink);
+    transition: border-color 0.2s ease, background 0.2s ease;
+  }
+  .id:hover { border-color: var(--veil); background: rgba(139,124,255,0.06); }
+  .id-label { font-size: 0.72rem; letter-spacing: 0.18em; text-transform: uppercase; color: var(--mist-2); font-family: var(--font-mono); }
+  .id-val { font-size: 0.92rem; color: var(--cyan); }
+
+  @media (max-width: 860px) { .ids { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 480px) { .ids { grid-template-columns: 1fr; } }
+</style>

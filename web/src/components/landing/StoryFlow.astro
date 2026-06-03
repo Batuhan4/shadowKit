@@ -1,0 +1,81 @@
+---
+// The signature visual: the shadow → reveal pipeline as a diagonal 4-stage flow.
+// Sealed (veil) → Timelocked (cyan) → Reveal (gold flash) → Agent executes (green).
+import { STORY_STAGES } from "./landing-data.ts";
+---
+<section class="story">
+  <div class="container">
+    <header class="story-head">
+      <span class="eyebrow">The pipeline</span>
+      <h2>Shadow becomes <span class="gradient-text">light</span>.</h2>
+      <p>One vote travels four stages — sealed by zero-knowledge, hidden by a timelock, unsealed in the open, then executed by an agent that can't go off-script.</p>
+    </header>
+
+    <ol class="flow" role="list">
+      {STORY_STAGES.map((s, i) => (
+        <li class={`stage a-${s.accent}`} style={`--i:${i}`}>
+          <div class="stage-top">
+            <span class="num mono">{s.index}</span>
+            <span class={`badge badge-${s.accent}`}>{s.tag}</span>
+          </div>
+          <h3>{s.title}</h3>
+          <p>{s.body}</p>
+          {i < STORY_STAGES.length - 1 && <span class="arrow" aria-hidden="true">→</span>}
+        </li>
+      ))}
+    </ol>
+  </div>
+</section>
+
+<style>
+  .story { padding: clamp(3rem, 8vw, 6rem) 0; }
+  .story-head { max-width: 60ch; margin-bottom: 2.6rem; }
+  .story-head h2 { margin: 0.5rem 0 0.6rem; }
+  .story-head p { color: var(--mist); }
+
+  .flow { list-style: none; margin: 0; padding: 0; display: grid; gap: 1rem;
+          grid-template-columns: repeat(4, 1fr); }
+
+  .stage {
+    position: relative; padding: 1.4rem; border-radius: var(--radius);
+    border: 1px solid var(--line);
+    background: linear-gradient(180deg, var(--panel), var(--panel-2));
+    /* each stage lifts one notch out of the shadow toward the light */
+    transform: translateY(calc((3 - var(--i)) * 10px));
+    transition: transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
+  }
+  .stage:hover { transform: translateY(calc((3 - var(--i)) * 10px - 4px)); }
+  .stage-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.9rem; }
+  .num { font-size: 0.75rem; color: var(--mist-2); letter-spacing: 0.1em; }
+  .stage h3 { font-size: 1.06rem; margin: 0 0 0.45rem; }
+  .stage p { font-size: 0.88rem; line-height: 1.55; margin: 0; color: var(--mist); }
+
+  /* connective arrows between stages */
+  .arrow { position: absolute; right: -0.78rem; top: 1.55rem; z-index: 2;
+           font-family: var(--font-mono); font-size: 1.1rem; color: var(--mist-2); }
+
+  /* accent edges — a left rail tinted per stage, building the violet→gold→green progression */
+  .stage::before { content: ""; position: absolute; left: 0; top: 14%; bottom: 14%; width: 3px;
+                   border-radius: 3px; }
+  .a-veil { box-shadow: 0 0 0 1px rgba(139,124,255,0.18); }
+  .a-veil::before { background: var(--veil); box-shadow: 0 0 14px rgba(139,124,255,0.5); }
+  .a-cyan { box-shadow: 0 0 0 1px rgba(61,224,230,0.18); }
+  .a-cyan::before { background: var(--cyan); box-shadow: 0 0 14px rgba(61,224,230,0.5); }
+  .a-gold { box-shadow: 0 0 0 1px rgba(246,196,83,0.28); }
+  .a-gold::before { background: var(--gold); box-shadow: 0 0 16px rgba(246,196,83,0.6); }
+  .a-gold { animation: goldFlash 3.2s ease-in-out 1.2s; }
+  .a-green { box-shadow: 0 0 0 1px rgba(86,217,138,0.2); }
+  .a-green::before { background: var(--green); box-shadow: 0 0 14px rgba(86,217,138,0.5); }
+
+  @media (max-width: 900px) {
+    .flow { grid-template-columns: repeat(2, 1fr); }
+    .stage { transform: none; }
+    .stage:hover { transform: translateY(-4px); }
+    .arrow:nth-of-type(1) { display: none; }
+    .arrow { right: 50%; top: auto; bottom: -1.15rem; transform: translateX(50%) rotate(90deg); }
+  }
+  @media (max-width: 540px) {
+    .flow { grid-template-columns: 1fr; }
+    .arrow { display: none; }
+  }
+</style>

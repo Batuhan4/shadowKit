@@ -1,0 +1,31 @@
+---
+// Hackathon tracks: Hack Privacy (veil) + Hack Agentic (cyan), one line each.
+import { TRACKS } from "./landing-data.ts";
+---
+<section class="tracks">
+  <div class="container">
+    <header class="tracks-head">
+      <span class="eyebrow">Build On Stellar · IBW 2026</span>
+      <h2>Two tracks, one loop.</h2>
+    </header>
+    <div class="grid">
+      {TRACKS.map((t) => (
+        <div class={`card track a-${t.accent}`}>
+          <span class={`badge badge-${t.accent}`}>● {t.name}</span>
+          <p>{t.line}</p>
+        </div>
+      ))}
+    </div>
+  </div>
+</section>
+
+<style>
+  .tracks { padding: clamp(2rem, 6vw, 4rem) 0; }
+  .tracks-head { margin-bottom: 1.6rem; }
+  .tracks-head h2 { margin: 0.4rem 0 0; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.1rem; }
+  .track p { margin: 0.9rem 0 0; color: var(--mist); font-size: 0.95rem; }
+  .a-veil { box-shadow: 0 0 0 1px rgba(139,124,255,0.18); }
+  .a-cyan { box-shadow: 0 0 0 1px rgba(61,224,230,0.18); }
+  @media (max-width: 720px) { .grid { grid-template-columns: 1fr; } }
+</style>

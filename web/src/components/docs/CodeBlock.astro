@@ -1,0 +1,68 @@
+---
+// On-brand code block. JetBrains Mono, void surface, optional filename + language tag.
+// Usage:  <CodeBlock lang="bash" file="terminal">npm install ...</CodeBlock>
+// Pass code via the default slot (raw text). For multi-line, prefer a JS template literal in a
+// `code` prop to avoid Astro whitespace surprises:  <CodeBlock code={`...`} lang="ts" />
+interface Props {
+  lang?: string;
+  file?: string;
+  code?: string;
+}
+const { lang, file, code } = Astro.props;
+---
+<figure class="cb">
+  {(file || lang) && (
+    <figcaption class="cb-head">
+      {file && <span class="cb-file mono">{file}</span>}
+      {lang && <span class="cb-lang mono">{lang}</span>}
+    </figcaption>
+  )}
+  <pre class="cb-pre"><code class="mono">{code ?? <slot />}</code></pre>
+</figure>
+
+<style>
+  .cb {
+    margin: 1.1rem 0 1.6rem;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--void-2);
+    overflow: hidden;
+    box-shadow: var(--shadow-1);
+  }
+  .cb-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.6rem;
+    padding: 0.5rem 0.85rem;
+    border-bottom: 1px solid var(--line);
+    background: linear-gradient(180deg, var(--panel), var(--panel-2));
+  }
+  .cb-file {
+    font-size: 0.74rem;
+    color: var(--mist);
+    letter-spacing: 0.02em;
+  }
+  .cb-lang {
+    font-size: 0.66rem;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    color: var(--veil);
+    margin-left: auto;
+  }
+  .cb-pre {
+    margin: 0;
+    padding: 0.95rem 1.05rem;
+    overflow-x: auto;
+    font-size: 0.84rem;
+    line-height: 1.6;
+    color: var(--ink);
+  }
+  .cb-pre code {
+    font-family: var(--font-mono);
+    white-space: pre;
+    color: inherit;
+  }
+  .cb-pre::-webkit-scrollbar { height: 8px; }
+  .cb-pre::-webkit-scrollbar-thumb { background: var(--line); border-radius: 8px; }
+</style>

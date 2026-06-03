@@ -1,0 +1,121 @@
+---
+import DocsLayout from "../../layouts/DocsLayout.astro";
+import CodeBlock from "../../components/docs/CodeBlock.astro";
+import Callout from "../../components/docs/Callout.astro";
+import { DOCS_PAGES } from "../../components/docs/docs-nav.ts";
+import { CONFIG, explorerContract, short } from "../../lib/config.ts";
+
+const cards = DOCS_PAGES.filter((p) => p.href !== "/docs");
+---
+<DocsLayout
+  title="ShadowKit SDK"
+  eyebrow="Documentation"
+  description="ZK + AI-agent governance infrastructure for Stellar. Members vote privately, the tally stays sealed behind a timelock until close, then an LLM-bounded agent executes the approved action on-chain — gated by policy."
+  href="/docs"
+>
+  <p>
+    <strong>ShadowKit</strong> is an SDK for building governance where the <em>how</em> stays private
+    and the <em>outcome</em> is verifiable. It composes four primitives:
+  </p>
+  <ul>
+    <li><strong>Zero-knowledge votes</strong> — a Groth16 (BLS12-381) circuit proves membership and a hidden weight; identity, weight, and direction never go on-chain.</li>
+    <li><strong>Timelock seal</strong> — each vote's (direction, weight) is tlock-encrypted to the drand round at the deadline; the running tally is unknowable until close.</li>
+    <li><strong>On-chain governance</strong> — a Soroban <code>GovVault</code> stores sealed votes, re-aggregates the revealed tally, and exposes an approval gate.</li>
+    <li><strong>Bounded AI agent</strong> — an LLM plans the approved action; an on-chain policy contract rejects anything off-spec, so a hallucinating agent can never move funds wrongly.</li>
+  </ul>
+
+  <Callout type="ok" title="Live on Stellar testnet">
+    <p>
+      Every contract documented here is deployed and live. <code>GovVault</code> is at{" "}
+      <a href={explorerContract(CONFIG.govVaultId)} target="_blank" rel="noopener">{short(CONFIG.govVaultId)}</a>.
+      The demos run for real on every visit — no replay, no recording.
+    </p>
+  </Callout>
+
+  <h2>Install</h2>
+  <p>ShadowKit ships as a set of scoped npm packages plus the Soroban contract WASM. For the browser proving + sealing path:</p>
+  <CodeBlock lang="bash" file="terminal" code={`npm install @shadowkit/zk-prover @shadowkit/snapshot-tool \\
+  @shadowkit/tally-reveal @shadowkit/shared`} />
+  <p>For the agent + x402 services (server / Worker side):</p>
+  <CodeBlock lang="bash" file="terminal" code={`npm install @shadowkit/agent @shadowkit/x402-shared \\
+  @shadowkit/x402-premium-data @shadowkit/x402-api`} />
+
+  <Callout type="note" title="Runtime">
+    <p>
+      All TypeScript packages are ESM (<code>"type": "module"</code>), Node 26+, and run in the browser
+      or a Cloudflare Worker over <code>fetch</code>. ZK proving uses real <code>snarkjs</code>; sealing
+      uses real <code>tlock-js</code> + <code>drand-client</code>.
+    </p>
+  </Callout>
+
+  <h2>Quickstart — seal a vote</h2>
+  <p>
+    Build a snapshot of eligible holders, generate a zero-knowledge proof, and timelock-seal the vote —
+    all client-side. The witness never leaves the browser.
+  </p>
+  <CodeBlock lang="ts" file="seal-vote.ts" code={`import { buildSnapshot } from "@shadowkit/snapshot-tool";
+import { generateVoteProof, nullifierFor } from "@shadowkit/zk-prover";
+
+// 1) Merkle snapshot of eligible holders (leaf = Poseidon(Poseidon(secret), weight)).
+const snapshot = await buildSnapshot([
+  { secretCommit, weight: "1000" },
+  // ...more holders
+]);
+const { merklePath, pathIndices } = snapshot.getPath(myLeafIndex);
+
+// 2) Prove + seal. direction/weight are hidden; only the 4 public signals are revealed.
+const { proof, publicSignals, sealedCiphertext } = await generateVoteProof(
+  {
+    secret,
+    merklePath,
+    pathIndices,
+    weight: "1000",
+    proposalId: "0",
+    direction: 1,               // yes — SEALED, never a public signal
+    merkleRoot: snapshot.root,
+  },
+  { wasmPath: "/zk/vote.wasm", zkeyPath: "/zk/vote_final.zkey" },
+  deadlineUnixSeconds,          // tlock round derived from this
+);
+
+// publicSignals = { merkleRoot, nullifier, proposalId, sealedCommitmentHash }
+// → submit GovVault.cast_vote(proposalId, proof, publicSignals, sealedCiphertext)`} />
+
+  <Callout type="warn" title="Public-signal order is binding">
+    <p>
+      The proof's public signals are always
+      <code>[merkleRoot, nullifier, proposalId, sealedCommitmentHash]</code>. The circuit, the
+      <code>GovVault</code> contract, and the TS bindings all agree on this order — see
+      <a href="/docs/circuits">Circuits</a>.
+    </p>
+  </Callout>
+
+  <h2>Where to next</h2>
+  <div class="doc-cards">
+    {cards.map((c) => (
+      <a class="doc-card card" href={c.href}>
+        <span class="doc-card-title">{c.label}</span>
+        <span class="doc-card-blurb">{c.blurb}</span>
+      </a>
+    ))}
+  </div>
+</DocsLayout>
+
+<style>
+  .doc-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 0.9rem;
+    margin-top: 1rem;
+  }
+  .doc-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    padding: 1rem 1.1rem;
+    transition: border-color 0.18s ease, transform 0.12s ease;
+  }
+  .doc-card:hover { border-color: var(--veil); transform: translateY(-2px); }
+  .doc-card-title { font-family: var(--font-display); font-weight: 600; color: var(--ink); }
+  .doc-card-blurb { font-size: 0.86rem; color: var(--mist); }
+</style>

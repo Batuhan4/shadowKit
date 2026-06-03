@@ -1,0 +1,92 @@
+---
+import DocsLayout from "../../layouts/DocsLayout.astro";
+import CodeBlock from "../../components/docs/CodeBlock.astro";
+import Callout from "../../components/docs/Callout.astro";
+---
+<DocsLayout
+  title="Architecture"
+  eyebrow="Concepts"
+  description="How the zero-knowledge, timelock, governance, and agent layers fit together — and the privacy/security split that makes the demo genuinely live."
+  href="/docs/architecture"
+>
+  <p>
+    ShadowKit is layered so each concern is enforced where it belongs: privacy in the browser,
+    correctness on-chain, and execution behind a policy lock. Nothing is "trusted" — every claim is
+    either a zero-knowledge proof, a timelock, or an on-chain check.
+  </p>
+
+  <h2>The four layers</h2>
+  <ul>
+    <li>
+      <strong>Snapshot &amp; circuit (ZK).</strong> <code>@shadowkit/snapshot-tool</code> builds a Poseidon
+      Merkle tree of eligible holders. The <code>vote</code> Circom circuit proves membership + a hidden
+      weight and emits a nullifier, producing a Groth16 proof over BLS12-381.
+    </li>
+    <li>
+      <strong>Seal (timelock).</strong> <code>@shadowkit/zk-prover</code> tlock-encrypts the
+      <code>(direction, weight)</code> to the drand round at the proposal deadline. The on-chain
+      ciphertext is bound to the proof by its commitment hash (public signal #4).
+    </li>
+    <li>
+      <strong>Governance (on-chain).</strong> <code>GovVault</code> verifies the proof via the
+      <code>Groth16Verifier</code> contract, stores the sealed vote, and — after the deadline —
+      re-aggregates the revealed tally and sets <code>Approved</code>/<code>Rejected</code>.
+    </li>
+    <li>
+      <strong>Agent &amp; policy (bounded execution).</strong> The <code>@shadowkit/agent</code> loop pays an
+      x402 data endpoint, asks an LLM for a bounded plan, and submits a swap — which the
+      <code>AgentPolicy</code> smart-account contract authorizes only if it matches the approved action.
+    </li>
+  </ul>
+
+  <h2>Data flow</h2>
+  <CodeBlock lang="text" file="flow" code={`Browser (private)                              Chain (verifiable)            Agent (bounded)
+─────────────────                              ──────────────────            ───────────────
+buildSnapshot()  ── Merkle root ──────────────▶ GovVault.init(root)
+generateVoteProof()
+  · Groth16 proof (snarkjs + vote.wasm)
+  · tlock seal (direction,weight → round)
+       │ proof + sealed ciphertext
+       ▼
+   cast_vote(id, proof, pubSignals, sealed) ──▶ Groth16Verifier.verify
+                                                 store SealedVote (no tally)
+  ── after deadline ──
+revealTally() (tlock decrypt) ── decryptions ─▶ close_and_reveal(id, yesW, noW, decryptions)
+                                                 re-aggregate → Approved? ───▶ Watcher.waitForApproved
+                                                                               x402 pay premium-data
+                                                                               LLM plan (≤ cap)
+                                                 AgentPolicy.enforce ◀──────── Executor.executeSwap
+                                                 SwapVenue.swap                mark_executed (single-shot)`} />
+
+  <h2>The privacy / security split</h2>
+  <p>
+    The demo runs fully live on testnet because the secrets are partitioned correctly:
+  </p>
+  <ul>
+    <li><strong>The voter's witness</strong> (secret, weight, direction) never leaves the browser — that is what makes the vote private.</li>
+    <li><strong>The agent's signing key and LLM key</strong> live only as Cloudflare Pages Function secrets — they never reach the browser.</li>
+  </ul>
+
+  <Callout type="note" title="Why both halves are honest">
+    <p>
+      The voter half is client-side so privacy is real (no server sees the vote). The agent half is
+      server-side so the execution key is real (no browser holds it). Both are genuinely on testnet —
+      there is no canned recording.
+    </p>
+  </Callout>
+
+  <h2>Trust model</h2>
+  <ul>
+    <li><strong>No tally leak before close.</strong> <code>GovVault</code> exposes <code>votes_cast</code> (participation) but <code>weighted_yes</code>/<code>weighted_no</code> are <code>None</code> until the reveal.</li>
+    <li><strong>No double-vote.</strong> The nullifier (<code>Poseidon(secret, proposalId)</code>) is stored; a repeat is rejected with <code>NullifierUsed</code>.</li>
+    <li><strong>No replay across proposals.</strong> The proof binds <code>proposalId</code> as a public signal; a proof for one proposal fails on another (<code>WrongProposalId</code>).</li>
+    <li><strong>No off-spec execution.</strong> <code>AgentPolicy</code> re-reads <code>GovVault</code> during authorization and applies five gates (approved · not-executed · target · asset · cap). See <a href="/docs/contracts">Contracts</a>.</li>
+  </ul>
+
+  <Callout type="warn" title="Demo-grade verifier">
+    <p>
+      The on-chain <code>Groth16Verifier</code> is adapted from the Stellar
+      <code>soroban-examples</code> reference and is unaudited. Treat it as demo-grade.
+    </p>
+  </Callout>
+</DocsLayout>

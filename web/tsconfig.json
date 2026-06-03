@@ -3,7 +3,14 @@
   "compilerOptions": {
     "jsx": "react-jsx",
     "resolveJsonModule": true,
-    "types": ["@testing-library/jest-dom"]
+    "types": ["@testing-library/jest-dom"],
+    // This is a bundler-resolved Astro/Vite app: modules are resolved by Vite/esbuild (and Vitest),
+    // not emitted by tsc, so emitted .d.ts files from the repo base config are never consumed here.
+    // Disable emit and allow the explicit `.ts` import extensions the page code uses so a standalone
+    // `tsc --noEmit` type-checks the same module graph Astro/Vitest already resolve cleanly.
+    "noEmit": true,
+    "declaration": false,
+    "allowImportingTsExtensions": true
   },
   "include": ["src", "*.ts", "*.mjs"]
 }
