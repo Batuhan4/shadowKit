@@ -78,3 +78,6 @@ secrets/
 # demo (scripts/demo) transient esbuild bundles + the artifacts symlink they resolve poseidon wasm via
 .demo-bundle/
 /artifacts
+
+# Web demo site: ZK proving artifacts are build-copied (web prebuild) from circuits/vote/fixtures/.
+web/public/zk/

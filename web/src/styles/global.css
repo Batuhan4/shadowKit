@@ -1,0 +1,124 @@
+/* ShadowKit brand system — dark "shadow → reveal".
+   Palette + fonts + tagline are the established brand kit (docs/marketing). Keep consistent across
+   every page. Aesthetic: cinematic void, violet→cyan aurora, gold reserved for the unseal moment,
+   on-chain green for tx success. Display = Space Grotesk, mono = JetBrains Mono, body = Cantarell. */
+
+:root {
+  /* core palette */
+  --void: #0b0b12;
+  --void-2: #11111c;
+  --panel: #15151f;
+  --panel-2: #1b1b28;
+  --line: #262635;
+  --veil: #8b7cff;       /* privacy / primary */
+  --veil-dim: #6c5ed9;
+  --cyan: #3de0e6;       /* agent / tech */
+  --cyan-dim: #2ab3b8;
+  --gold: #f6c453;       /* the reveal moment */
+  --green: #56d98a;      /* on-chain success */
+  --red: #ff6b81;        /* danger / no */
+  --ink: #f4f4fb;        /* high-contrast text */
+  --mist: #9093a8;       /* muted text */
+  --mist-2: #6a6c80;
+
+  --grad-hero: linear-gradient(110deg, var(--veil) 0%, var(--cyan) 100%);
+  --grad-veil: linear-gradient(135deg, rgba(139,124,255,0.18), rgba(61,224,230,0.10));
+
+  --font-display: "Space Grotesk", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --font-body: "Cantarell", system-ui, sans-serif;
+
+  --radius: 14px;
+  --radius-sm: 9px;
+  --shadow-1: 0 1px 0 rgba(255,255,255,0.04) inset, 0 18px 50px -20px rgba(0,0,0,0.8);
+  --glow-veil: 0 0 0 1px rgba(139,124,255,0.35), 0 12px 40px -12px rgba(139,124,255,0.45);
+  --glow-cyan: 0 0 0 1px rgba(61,224,230,0.35), 0 12px 40px -12px rgba(61,224,230,0.4);
+  --maxw: 1140px;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--void);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 16.5px;
+  line-height: 1.65;
+  letter-spacing: 0.1px;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  min-height: 100vh;
+  position: relative;
+  overflow-x: hidden;
+}
+
+/* layered atmosphere: two aurora blooms + a fine grain overlay */
+body::before {
+  content: "";
+  position: fixed; inset: 0; z-index: -2; pointer-events: none;
+  background:
+    radial-gradient(60% 45% at 12% -5%, rgba(139,124,255,0.20), transparent 60%),
+    radial-gradient(55% 45% at 95% 8%, rgba(61,224,230,0.14), transparent 55%),
+    radial-gradient(80% 60% at 50% 115%, rgba(139,124,255,0.08), transparent 60%);
+}
+body::after {
+  content: "";
+  position: fixed; inset: 0; z-index: -1; pointer-events: none; opacity: 0.5;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
+}
+
+h1, h2, h3, h4 { font-family: var(--font-display); font-weight: 600; line-height: 1.1; letter-spacing: -0.5px; margin: 0 0 0.5em; }
+h1 { font-size: clamp(2.4rem, 6vw, 4.4rem); font-weight: 700; }
+h2 { font-size: clamp(1.7rem, 3.4vw, 2.5rem); }
+h3 { font-size: 1.25rem; }
+p { margin: 0 0 1em; color: var(--mist); }
+a { color: var(--cyan); text-decoration: none; transition: color 0.15s ease; }
+a:hover { color: var(--ink); }
+code, .mono { font-family: var(--font-mono); font-size: 0.9em; }
+
+.container { width: 100%; max-width: var(--maxw); margin: 0 auto; padding: 0 24px; }
+.gradient-text { background: var(--grad-hero); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.eyebrow { font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.28em; text-transform: uppercase; color: var(--veil); }
+
+/* buttons */
+.btn {
+  display: inline-flex; align-items: center; gap: 0.55em; cursor: pointer;
+  font-family: var(--font-display); font-weight: 600; font-size: 0.95rem;
+  padding: 0.72em 1.3em; border-radius: var(--radius-sm); border: 1px solid transparent;
+  transition: transform 0.12s ease, box-shadow 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+}
+.btn:active { transform: translateY(1px); }
+.btn-primary { background: var(--grad-hero); color: #0a0a12; box-shadow: var(--glow-veil); }
+.btn-primary:hover { box-shadow: 0 0 0 1px rgba(139,124,255,0.6), 0 16px 50px -10px rgba(139,124,255,0.6); color: #0a0a12; }
+.btn-ghost { background: rgba(255,255,255,0.03); color: var(--ink); border-color: var(--line); }
+.btn-ghost:hover { border-color: var(--veil); color: var(--ink); }
+
+/* surfaces */
+.card {
+  background: linear-gradient(180deg, var(--panel), var(--panel-2));
+  border: 1px solid var(--line); border-radius: var(--radius);
+  box-shadow: var(--shadow-1); padding: 1.4rem;
+}
+.badge {
+  display: inline-flex; align-items: center; gap: 0.45em; font-family: var(--font-mono);
+  font-size: 0.72rem; letter-spacing: 0.04em; padding: 0.32em 0.7em; border-radius: 999px;
+  border: 1px solid var(--line); color: var(--mist); background: rgba(255,255,255,0.02);
+}
+.badge-veil { color: var(--veil); border-color: rgba(139,124,255,0.4); }
+.badge-cyan { color: var(--cyan); border-color: rgba(61,224,230,0.4); }
+.badge-gold { color: var(--gold); border-color: rgba(246,196,83,0.45); }
+.badge-green { color: var(--green); border-color: rgba(86,217,138,0.45); }
+
+.divider { height: 1px; background: var(--line); border: 0; margin: 0; }
+.sealed { filter: blur(7px); user-select: none; }
+
+/* motion */
+@keyframes fadeUp { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+@keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+@keyframes goldFlash { 0% { box-shadow: 0 0 0 0 rgba(246,196,83,0.0); } 30% { box-shadow: 0 0 0 6px rgba(246,196,83,0.35); } 100% { box-shadow: 0 0 0 0 rgba(246,196,83,0); } }
+.reveal-up { animation: fadeUp 0.7s cubic-bezier(0.2,0.7,0.2,1) both; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } html { scroll-behavior: auto; } }
+
+:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; border-radius: 4px; }
+::selection { background: rgba(139,124,255,0.35); color: var(--ink); }

@@ -1,0 +1,44 @@
+---
+import { CONFIG, explorerContract, short } from "../lib/config.ts";
+const contracts = [
+  { label: "GovVault", id: CONFIG.govVaultId },
+  { label: "Verifier", id: CONFIG.verifierId },
+  { label: "USDC", id: CONFIG.usdcId },
+  { label: "AMM", id: CONFIG.ammId },
+];
+const year = 2026;
+---
+<footer class="ft">
+  <div class="container ft-inner">
+    <div class="ft-brand">
+      <div class="tag">Vote in the shadows. <span class="gradient-text">Execute in the light.</span></div>
+      <p class="muted">ZK + AI governance infrastructure on Stellar / Soroban. Built for Build On Stellar — IBW 2026.</p>
+      <span class="badge badge-green">● Live on Stellar testnet</span>
+    </div>
+    <div class="ft-col">
+      <h4>Explore</h4>
+      <a href="/demo/fund">ShadowFund — private voting</a>
+      <a href="/demo/agent">AgentBoard — AI execution</a>
+      <a href="/docs">SDK docs</a>
+      <a href="https://github.com/Batuhan4/shadowKit" target="_blank" rel="noopener">GitHub</a>
+    </div>
+    <div class="ft-col">
+      <h4>Testnet contracts</h4>
+      {contracts.map((c) => (
+        <a class="mono" href={explorerContract(c.id)} target="_blank" rel="noopener">{c.label} · {short(c.id)}</a>
+      ))}
+    </div>
+  </div>
+</footer>
+
+<style>
+  .ft { border-top: 1px solid var(--line); margin-top: 6rem; padding: 3rem 0 4rem; background: rgba(0,0,0,0.2); }
+  .ft-inner { display: grid; grid-template-columns: 1.6fr 1fr 1fr; gap: 2.5rem; }
+  .tag { font-family: var(--font-display); font-weight: 600; font-size: 1.15rem; margin-bottom: 0.5rem; }
+  .muted { color: var(--mist); font-size: 0.92rem; max-width: 34ch; }
+  .ft-col h4 { font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--mist-2); margin-bottom: 0.9rem; }
+  .ft-col a { display: block; color: var(--mist); font-size: 0.9rem; padding: 0.22rem 0; }
+  .ft-col a:hover { color: var(--ink); }
+  .ft-col a.mono { font-size: 0.8rem; }
+  @media (max-width: 760px) { .ft-inner { grid-template-columns: 1fr; gap: 1.8rem; } }
+</style>

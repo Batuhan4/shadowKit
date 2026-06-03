@@ -1,12 +1,31 @@
 ---
-import Placeholder from "../components/Placeholder.tsx";
+import Layout from "../layouts/Layout.astro";
+import { CONFIG, short } from "../lib/config.ts";
 ---
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <title>ShadowKit AgentBoard</title>
-  </head>
-  <body>
-    <Placeholder title="ShadowKit AgentBoard" client:load />
-  </body>
-</html>
+<Layout>
+  <section class="container hero">
+    <span class="eyebrow reveal-up">ZK + AI governance · Stellar</span>
+    <h1 class="reveal-up">Vote in the shadows.<br /><span class="gradient-text">Execute in the light.</span></h1>
+    <p class="lede reveal-up">
+      Members vote privately — zero-knowledge proofs hide identity, weight, and direction. The tally
+      stays <b>sealed</b> behind a timelock until voting closes. Then an LLM-bounded agent executes the
+      approved action on-chain, gated by policy so a hallucinating agent can never move funds wrongly.
+    </p>
+    <div class="cta reveal-up">
+      <a class="btn btn-primary" href="/demo/fund">Try ShadowFund →</a>
+      <a class="btn btn-ghost" href="/demo/agent">Watch AgentBoard</a>
+    </div>
+    <p class="note mono">Live on Stellar testnet · GovVault {short(CONFIG.govVaultId)}</p>
+  </section>
+</Layout>
+
+<style>
+  .hero { padding: clamp(3rem, 9vw, 7rem) 0 4rem; max-width: 880px; }
+  .lede { font-size: 1.18rem; color: var(--mist); max-width: 60ch; margin: 1.4rem 0 2rem; }
+  .lede b { color: var(--ink); }
+  .cta { display: flex; gap: 0.8rem; flex-wrap: wrap; }
+  .note { color: var(--mist-2); font-size: 0.8rem; margin-top: 1.6rem; }
+  .reveal-up:nth-child(2) { animation-delay: 0.06s; }
+  .reveal-up:nth-child(3) { animation-delay: 0.12s; }
+  .reveal-up:nth-child(4) { animation-delay: 0.18s; }
+</style>
