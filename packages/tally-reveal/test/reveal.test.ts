@@ -86,7 +86,7 @@ describe("REVEAL_MODE selector (primary vs fallbacks)", () => {
     expect(args.revealedYesW).toBe("100");
     expect(args.revealedNoW).toBe("300");
     expect(args.decryptions).toHaveLength(2);
-    expect(args.decryptions[0].sealedCommitmentHash).toMatch(/^0x[0-9a-f]{64}$/);
+    expect(args.decryptions[0]!.sealedCommitmentHash).toMatch(/^0x[0-9a-f]{64}$/);
   }, 120_000);
 
   it("weight-unlinked mode head-counts and submits no decryptions", async () => {

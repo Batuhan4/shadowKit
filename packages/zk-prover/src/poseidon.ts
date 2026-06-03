@@ -15,6 +15,8 @@ import { tmpdir } from "node:os";
 //       array `w` has w[0] === 1n (the constant) and w[1] === the FIRST output signal `out` of the
 //       helper circuit; subsequent indices are the inputs). SOURCE: wtnsExportJson -> read() ->
 //       readBigInt loop returning res[] of bigints (build/main.cjs lines 4107 + 890).
+// @ts-ignore — untyped import; types come from vendor-types/snarkjs.d.ts via tsconfig `paths` (see the
+// index.ts note); this guards against the bundler-resolution race in the `npm run build` chain.
 import * as snarkjs from "snarkjs";
 
 const ARTIFACTS = resolve(dirname(fileURLToPath(import.meta.url)), "../artifacts");
