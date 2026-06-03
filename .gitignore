@@ -88,3 +88,6 @@ web/.wrangler/
 
 # dev-only responsive preview harness
 web/public/__resp.html
+
+# Astro generated cache
+web/.astro/
