@@ -44,6 +44,9 @@ export interface TreasuryBalances {
 export interface Executor {
   treasuryBalances(spec: ActionSpec): Promise<TreasuryBalances>;
   submitSwap(args: { assetIn: string; amountIn: string; minOut: string }): Promise<{ txHash: string }>;
+  /** Flip the GovVault proposal to Executed (single-shot) after a successful swap. Signed by the
+   *  executor key; require_auth(executor) is satisfied by the source signature. */
+  markExecuted(id: number): Promise<{ txHash: string }>;
 }
 
 /** Normalize a GovVault.proposal(id) result, tolerating Result<ProposalView> (live) shape:
@@ -171,6 +174,19 @@ export class StellarExecutor implements Executor {
       address: this.cfg.treasuryAddr,
       authorizeEntry: this.signer.signAuthEntry,
     });
+    const sent = await tx.signAndSend({ signTransaction: this.signer.signTransaction });
+    return { txHash: sent.sendTransactionResponse?.hash ?? "" };
+  }
+
+  async markExecuted(id: number): Promise<{ txHash: string }> {
+    const c = await this.client(this.cfg.govVaultId);
+    const tx = await (
+      c as unknown as {
+        mark_executed: (a: { id: number }) => Promise<{
+          signAndSend(o: unknown): Promise<{ sendTransactionResponse?: { hash: string } }>;
+        }>;
+      }
+    ).mark_executed({ id });
     const sent = await tx.signAndSend({ signTransaction: this.signer.signTransaction });
     return { txHash: sent.sendTransactionResponse?.hash ?? "" };
   }

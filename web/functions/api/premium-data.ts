@@ -26,11 +26,19 @@ export const DEFAULT_OZ_FACILITATOR_URL = "https://channels.openzeppelin.com/x40
 
 // Minimal Fetch-API HTTPAdapter (the same shape the express adapter implements). Lets the
 // framework-agnostic x402HTTPResourceServer.processHTTPRequest run inside a Cloudflare Worker.
+// The installed @x402/core HTTPResourceServer calls getAcceptHeader()/getUserAgent() (for its
+// isWebBrowser() content-negotiation), getHeader(), getMethod(), getUrl() — ALL must exist or it
+// throws "adapter.getAcceptHeader is not a function" at runtime (caught by the live e2e + the
+// processHTTPRequest test below).
 interface HTTPAdapterLike {
   getHeader(name: string): string | undefined;
   getMethod(): string;
   getPath(): string;
   getUrl(): string;
+  // NB: getAcceptHeader/getUserAgent MUST return a string (not undefined) — the framework's
+  // isWebBrowser() calls `.includes()` on them directly, so a missing header must be "" not undefined.
+  getAcceptHeader(): string;
+  getUserAgent(): string;
 }
 
 function fetchAdapter(request: Request): HTTPAdapterLike {
@@ -40,6 +48,8 @@ function fetchAdapter(request: Request): HTTPAdapterLike {
     getMethod: () => request.method,
     getPath: () => url.pathname,
     getUrl: () => request.url,
+    getAcceptHeader: () => request.headers.get("accept") ?? "",
+    getUserAgent: () => request.headers.get("user-agent") ?? "",
   };
 }
 

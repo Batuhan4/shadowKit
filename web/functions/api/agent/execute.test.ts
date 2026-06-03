@@ -47,6 +47,7 @@ function baseDeps(over: Partial<AgentLoopDeps> = {}): AgentLoopDeps {
     executor: {
       treasuryBalances: vi.fn(async () => ({ assetIn: "100000", assetOut: "0" })),
       submitSwap: vi.fn(async () => ({ txHash: "TXHASH123" })),
+      markExecuted: vi.fn(async () => ({ txHash: "MARKTX456" })),
     },
     approvedVenue: "CAMM",
     ...over,
@@ -89,6 +90,9 @@ describe("runAgentLoop — HAPPY path (fully live shape)", () => {
     expect(result.balancesBefore).toBeDefined();
     expect(result.balancesAfter).toBeDefined();
     expect(deps.executor.submitSwap).toHaveBeenCalledOnce();
+    // proposal is marked Executed on-chain after the swap (single-shot consume)
+    expect(deps.executor.markExecuted).toHaveBeenCalledWith(0);
+    expect(events.some((e) => e.phase === "submit" && /marked Executed/i.test(e.message))).toBe(true);
   });
 });
 
@@ -137,9 +141,10 @@ describe("runAgentLoop — NEGATIVE: Gemini plan violates policy → BLOCKED, ze
   });
 });
 
-describe("runAgentLoop — NEGATIVE: x402 payment missing → 402, NO plan, NO tx", () => {
-  it("payAndQuote reports unpaid → status=payment_required (402), stops before planning", async () => {
+describe("runAgentLoop — x402 STRICT mode (x402Required): payment missing → 402, NO plan, NO tx", () => {
+  it("payAndQuote unpaid + x402Required=true → status=payment_required (402), stops before planning", async () => {
     const deps = baseDeps({
+      x402Required: true,
       payAndQuote: vi.fn(async () => ({ paid: false, quote: null })),
     });
     const { events, result } = await collect(deps);
@@ -149,6 +154,25 @@ describe("runAgentLoop — NEGATIVE: x402 payment missing → 402, NO plan, NO t
     expect(deps.planner.plan).not.toHaveBeenCalled();
     expect(deps.executor.submitSwap).not.toHaveBeenCalled();
     expect(events.some((e) => e.phase === "error")).toBe(true);
+  });
+});
+
+describe("runAgentLoop — x402 BEST-EFFORT (demo default): unsettled payment → continue with public quote", () => {
+  it("payAndQuote unpaid (no x402Required) → loop CONTINUES: plans + submits using a public market quote", async () => {
+    const deps = baseDeps({
+      payAndQuote: vi.fn(async () => ({ paid: false, quote: null, error: "unsupported_asset" })),
+    });
+    const { events, result } = await collect(deps);
+
+    // Core stays live: NOT a payment_required stop; the planner ran with a real (public) quote, not null.
+    expect(result.status).not.toBe("payment_required");
+    expect(deps.planner.plan).toHaveBeenCalledOnce();
+    const planInput = (deps.planner.plan as ReturnType<typeof vi.fn>).mock.calls[0][0] as { market: { pair: string } | null };
+    expect(planInput.market).toBeTruthy();
+    expect(planInput.market!.pair).toBe("USDC-XLM");
+    // An honest "x402 not settled … public market quote" line is emitted on the data phase (not an error).
+    expect(events.some((e) => e.phase === "data" && /public market quote/i.test(e.message))).toBe(true);
+    expect(deps.executor.submitSwap).toHaveBeenCalledOnce();
   });
 });
 

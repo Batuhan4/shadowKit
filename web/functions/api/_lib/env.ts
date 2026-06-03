@@ -32,6 +32,9 @@ export interface WorkerEnv {
   PREMIUM_DATA_URL?: string;
   DEMO_PROPOSAL_ID?: string;
   USDC_PAIR?: string;
+  /** "true" → an unsettled x402 payment hard-stops the agent loop (strict). Otherwise (default) the
+   *  loop continues with a public market quote so the agentic core stays live. */
+  X402_REQUIRED?: string;
 }
 
 /** The proposal the AgentBoard demo executes (override with DEMO_PROPOSAL_ID). Must be APPROVED

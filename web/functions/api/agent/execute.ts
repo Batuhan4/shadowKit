@@ -15,7 +15,7 @@
 // policy or the loop. onRequestPost() wires the REAL deps and streams the events as SSE.
 import type { ActionSpec } from "@shadowkit/shared";
 import { gatePlan, type AgentPlan, type PolicyVerdict } from "../_lib/policy";
-import type { MarketQuote } from "../_lib/quote";
+import { quoteFor, type MarketQuote } from "../_lib/quote";
 import { makeSseStream, SSE_HEADERS } from "../_lib/sse";
 import {
   StellarGovReader,
@@ -58,9 +58,15 @@ export interface AgentLoopDeps {
       amountIn: string;
       minOut: string;
     }): Promise<{ txHash: string }>;
+    markExecuted(id: number): Promise<{ txHash: string }>;
   };
   approvedVenue?: string;
   pair?: string;
+  /** When true, an unsettled x402 payment HARD-STOPS the loop (402, no plan, no tx) — the strict
+   *  "agent must pay for its data" policy. When false (demo default), the loop logs the honest reason
+   *  and continues with a public market quote so the agentic CORE (plan → policy → on-chain swap)
+   *  stays fully live even when the public facilitator can't settle the configured (test) asset. */
+  x402Required?: boolean;
 }
 
 export type LoopPhase =
@@ -154,24 +160,39 @@ export async function runAgentLoop(
     // 2) x402-pay the premium-data endpoint and fetch the quote.
     emit({ phase: "data", message: `paying premium-data over x402 for ${pair}…` });
     const pay = await deps.payAndQuote(pair);
-    if (!pay.paid || !pay.quote) {
+    let quote: MarketQuote;
+    if (pay.paid && pay.quote) {
+      quote = pay.quote;
+      emit({
+        phase: "data",
+        message: `x402 paid${pay.txRef ? ` (settle ${pay.txRef})` : ""} · quote ${quote.pair} price=${quote.price} signal=${quote.signal}`,
+        quote,
+      });
+    } else if (deps.x402Required) {
       emit({
         phase: "error",
         message: `x402 payment required — ${pay.error ?? "settlement did not complete"}`,
       });
       return { status: "payment_required", httpStatus: 402 };
+    } else {
+      // The x402 round-trip ran for real (402 challenge → client payment → facilitator verify), but the
+      // public facilitator (OZ Channels) could not settle the configured asset — e.g. our self-issued
+      // test USDC returns "unsupported_asset" (OZ settles Circle USDC). Keep the agentic CORE live:
+      // continue with a deterministic public market quote. Fund the x402 client with a
+      // facilitator-supported asset (Circle testnet USDC) to settle x402 end-to-end.
+      quote = quoteFor(pair);
+      emit({
+        phase: "data",
+        message: `x402 not settled (${pay.error ?? "settlement unavailable"}) — continuing with public market quote · ${quote.pair} price=${quote.price} signal=${quote.signal}`,
+        quote,
+      });
     }
-    emit({
-      phase: "data",
-      message: `x402 paid${pay.txRef ? ` (settle ${pay.txRef})` : ""} · quote ${pay.quote.pair} price=${pay.quote.price} signal=${pay.quote.signal}`,
-      quote: pay.quote,
-    });
 
     // 3) Gemini bounded plan (structured output).
     emit({ phase: "plan", message: "Gemini planning the bounded swap…" });
     const venue = deps.approvedVenue ?? "";
     const plan = await deps.planner.plan(
-      { spec: prop.spec, cap: prop.cap, venue, market: pay.quote },
+      { spec: prop.spec, cap: prop.cap, venue, market: quote },
       (delta) => emit({ phase: "plan", message: delta }),
     );
     emit({
@@ -212,6 +233,23 @@ export async function runAgentLoop(
       txHash: sub.txHash,
       explorer,
     });
+
+    // Mark the proposal Executed on-chain (single-shot consume; satisfies the 409-already-executed
+    // guard on re-runs). Non-fatal: the swap already moved funds, so a mark_executed hiccup must NOT
+    // fail the run — surface it and continue to the balances/done summary.
+    try {
+      const marked = await deps.executor.markExecuted(params.proposalId);
+      emit({
+        phase: "submit",
+        message: `proposal #${params.proposalId} marked Executed${marked.txHash ? ` · tx ${marked.txHash}` : ""}`,
+        txHash: marked.txHash || undefined,
+      });
+    } catch (e) {
+      emit({
+        phase: "submit",
+        message: `note: mark_executed did not complete (${(e as Error).message}) — swap already settled on-chain`,
+      });
+    }
 
     // Read balances AFTER for the before/after delta.
     let balancesAfter: TreasuryBalances | undefined;
@@ -288,6 +326,7 @@ function realDeps(env: WorkerEnv, origin: string): AgentLoopDeps {
     executor,
     approvedVenue: CONFIG.ammId,
     pair: env.USDC_PAIR ?? DEFAULT_PAIR,
+    x402Required: env.X402_REQUIRED === "true",
   };
 }
 
