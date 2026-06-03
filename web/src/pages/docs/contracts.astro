@@ -108,7 +108,7 @@ pub fn verify(env: Env, proof: Proof, pub_signals: Vec<Fr>) -> bool;`} />
 
   <h2>AgentPolicy — <code>agent-policy</code> (the lock)</h2>
   <p>
-    An OpenZeppelin smart-account custom policy (crate <code>stellar-accounts</code> 0.7.1). The treasury
+    An OpenZeppelin smart-account custom policy (crate <code>stellar-accounts</code>, git tag <code>v0.8.0-rc.1</code> — soroban-sdk 26). The treasury
     <em>is</em> this smart-account wallet. Its <code>enforce()</code> cross-reads <code>GovVault</code> and
     authorizes a swap only if every gate below passes — otherwise it panics with a typed
     <code>PolicyError</code>.
