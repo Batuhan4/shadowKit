@@ -23,6 +23,17 @@
 import * as snarkjs from "snarkjs";
 import type { Groth16Proof, PublicSignals } from "@shadowkit/shared";
 import { CONFIG } from "./config";
+import { Buffer as NodeBuffer } from "buffer";
+
+// Browser polyfill (runs at module-eval, before any cast/marshal call). @stellar/stellar-sdk's tx-build
+// AND the Buffer.from(...) calls below reference Node's global `Buffer`, which the browser lacks — that
+// caused "Vote failed: Buffer is not defined" at the cast step. Supply it from the `buffer` package; a
+// minimal `process` shim guards stellar-sdk's occasional process.env reads. No-op in Node/tests.
+{
+  const g = globalThis as { Buffer?: unknown; process?: { env?: Record<string, unknown> } };
+  if (typeof g.Buffer === "undefined") g.Buffer = NodeBuffer;
+  if (typeof g.process === "undefined") g.process = { env: {} };
+}
 
 // The deterministic demo sealKey (matches packages/zk-prover/src/seal.ts — the committed fixtures use
 // it). The ciphertext confidentiality comes from the tlock drand round, not this value; it only binds
