@@ -13,6 +13,8 @@ export default defineConfig({
       title: "ShadowKit",
       description:
         "ZK + AI-agent governance infrastructure for Stellar — private sealed voting, then a bounded agent executes on-chain.",
+      // Anonymity-set favicon (charcoal + lime). Versioned to bust browsers' sticky favicon cache.
+      favicon: "/favicon.svg?v=3",
       social: [
         {
           icon: "github",

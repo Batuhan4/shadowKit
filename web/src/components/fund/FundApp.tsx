@@ -44,6 +44,8 @@ const members = snapshot.members as SnapshotMember[];
 interface VoteBundle {
   result: VoteProofResult;
   memberIndex: number;
+  /** the OPEN proposal this vote was proved+sealed against (carried so submit casts on the same id). */
+  proposalId: number;
 }
 
 export function FundApp({ projects, proposalId, poolUsdc }: FundAppProps) {
@@ -104,7 +106,8 @@ export function FundApp({ projects, proposalId, poolUsdc }: FundAppProps) {
   }, [sessionDeadline]);
 
   // Mint a fresh per-session proposal (admin-signed server-side) and adopt its id + deadline.
-  const startSession = useCallback(async () => {
+  // Returns the id+deadline so the vote flow can mint-and-use atomically (state updates next render).
+  const startSession = useCallback(async (): Promise<{ id: number; deadline: number }> => {
     setSessionLoading(true);
     setSessionError(null);
     try {
@@ -124,8 +127,10 @@ export function FundApp({ projects, proposalId, poolUsdc }: FundAppProps) {
       setSessionProposalId(id);
       setSessionDeadline(deadline);
       setNowSec(Math.floor(Date.now() / 1000));
+      return { id, deadline };
     } catch (e) {
       setSessionError((e as Error).message);
+      throw e;
     } finally {
       setSessionLoading(false);
     }
@@ -183,19 +188,26 @@ export function FundApp({ projects, proposalId, poolUsdc }: FundAppProps) {
       buildProof: async ({ direction }) => {
         if (!address) throw new Error("connect a wallet first");
         const artifacts = await getArtifacts();
+        // Ensure an OPEN proposal: if no live session exists, mint a fresh one NOW. Never vote against
+        // the prop-default proposal (id 0), whose deadline has long passed → on-chain DeadlinePassed.
+        let pid = sessionProposalId;
+        let dl = sessionDeadline;
+        if (pid == null || dl == null) {
+          const s = await startSession();
+          pid = s.id;
+          dl = s.deadline;
+        }
         const memberIndex = nextMemberRef.current % members.length;
         const member = { ...members[memberIndex]!, direction };
-        // Seal to the live session deadline (so the tlock round unlocks at close); fall back to a
-        // near-future deadline if no session was bootstrapped (the prop-default proposal path).
-        const deadline = sessionDeadline ?? Math.floor(Date.now() / 1000) + 90;
-        const result = await buildVoteProof(member, activeProposalId, deadline, artifacts);
-        return { result, memberIndex } satisfies VoteBundle;
+        // Seal to the (fresh) session deadline so the tlock round unlocks exactly at close.
+        const result = await buildVoteProof(member, pid, dl, artifacts);
+        return { result, memberIndex, proposalId: pid } satisfies VoteBundle;
       },
       seal: async () => {/* the tlock seal happens inside buildVoteProof; nothing extra here */},
       submit: async (bundle) => {
         if (!address) throw new Error("connect a wallet first");
-        const { result } = bundle as VoteBundle;
-        const xdr = await buildCastVoteXdr(address, activeProposalId, result);
+        const { result, proposalId: pid } = bundle as VoteBundle;
+        const xdr = await buildCastVoteXdr(address, pid, result);
         const kit = await getKit();
         const { signedTxXdr } = await kit.signTransaction(xdr, {
           networkPassphrase: CONFIG.networkPassphrase,
@@ -209,7 +221,7 @@ export function FundApp({ projects, proposalId, poolUsdc }: FundAppProps) {
         return res;
       },
     }),
-    [address, getArtifacts, getKit, activeProposalId, sessionDeadline],
+    [address, getArtifacts, getKit, startSession, sessionProposalId, sessionDeadline],
   );
 
   // REAL RevealStage engine: tlock-decrypt this round's sealed votes -> close_and_reveal on-chain.
@@ -264,7 +276,7 @@ export function FundApp({ projects, proposalId, poolUsdc }: FundAppProps) {
         <button
           type="button"
           className="btn btn-primary fundapp-session-btn"
-          onClick={startSession}
+          onClick={() => void startSession().catch(() => {/* surfaced via sessionError */})}
           disabled={sessionLoading}
         >
           {sessionLoading

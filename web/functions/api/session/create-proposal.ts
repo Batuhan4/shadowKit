@@ -32,8 +32,11 @@ import {
 import { CONFIG } from "../../../src/lib/config";
 import type { WorkerEnv } from "../_lib/env";
 
-/** Default per-session proposal lifetime (seconds) added to the latest ledger close time. */
-export const DEFAULT_SESSION_TTL_SECONDS = 150;
+/** Default per-session proposal lifetime (seconds) added to the latest ledger close time.
+ *  1200s (20 min): generous headroom so a full browser vote — Groth16 proof-gen + tlock seal +
+ *  wallet signing — comfortably finishes before the deadline (a 150s window expired mid-vote →
+ *  on-chain DeadlinePassed). Override via the SESSION_TTL_SECONDS Worker env if needed. */
+export const DEFAULT_SESSION_TTL_SECONDS = 1200;
 
 export interface ProposalActionSpec {
   amount: string;

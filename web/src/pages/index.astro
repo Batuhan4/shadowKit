@@ -83,24 +83,6 @@ await govVault.cast_vote({
     </ol>
   </section>
 
-  <!-- TWO DEMOS -->
-  <section class="section wrap">
-    <div class="demos">
-      <a class="card demo" href="/demo/fund">
-        <span class="tag tag-lime">Privacy</span>
-        <h2>ShadowFund</h2>
-        <p class="muted">Cast a real zero-knowledge vote on a community fund. The tally is timelock-sealed until it unseals on-chain.</p>
-        <span class="go mono">Open ShadowFund →</span>
-      </a>
-      <a class="card demo" href="/demo/agent">
-        <span class="tag tag-lime">Agentic</span>
-        <h2>AgentBoard</h2>
-        <p class="muted">An LLM-bounded agent reads the approved result and executes the swap — gated by an on-chain policy it can't break.</p>
-        <span class="go mono">Watch AgentBoard →</span>
-      </a>
-    </div>
-  </section>
-
   <!-- BUILD WITH IT (SDK) -->
   <section class="section wrap sdk">
     <div class="sdk-copy">
@@ -123,6 +105,25 @@ await govVault.cast_vote({
       <figcaption class="mono"><span class="dot"></span><span class="dot"></span><span class="dot"></span> your-app.ts</figcaption>
       <pre class="code mono">{snippet}</pre>
     </figure>
+  </section>
+
+  <!-- TWO DEMOS -->
+  <section class="section wrap">
+    <p class="eyebrow demos-eyebrow">See it live</p>
+    <div class="demos">
+      <a class="card demo" href="/demo/fund">
+        <span class="tag tag-lime">Privacy</span>
+        <h2>ShadowFund</h2>
+        <p class="muted">Cast a real zero-knowledge vote on a community fund. The tally is timelock-sealed until it unseals on-chain.</p>
+        <span class="go mono">Open ShadowFund →</span>
+      </a>
+      <a class="card demo" href="/demo/agent">
+        <span class="tag tag-lime">Agentic</span>
+        <h2>AgentBoard</h2>
+        <p class="muted">An LLM-bounded agent reads the approved result and executes the swap — gated by an on-chain policy it can't break.</p>
+        <span class="go mono">Watch AgentBoard →</span>
+      </a>
+    </div>
   </section>
 
   <!-- PROOF -->
@@ -158,6 +159,7 @@ await govVault.cast_vote({
   .idea h3 { margin-bottom: 0.25rem; }
   .idea p { margin: 0; max-width: 54ch; }
 
+  .demos-eyebrow { margin-bottom: 1.2rem; }
   .demos { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(1rem, 2.5vw, 1.6rem); }
   .demo { display: flex; flex-direction: column; gap: 0.7rem; transition: border-color 0.15s, transform 0.12s; }
   .demo:hover { text-decoration: none; border-color: var(--lime); transform: translateY(-3px); }
