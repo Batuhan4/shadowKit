@@ -9,6 +9,26 @@ ShadowKit is privacy infrastructure for DAO voting on Stellar/Soroban. Members c
 
 ---
 
+## Screenshots
+
+Live on Stellar **testnet** at [shadowkit.nexvar.io](https://shadowkit.nexvar.io) — captured end-to-end with a real **Freighter** wallet.
+
+**1 · Wallet connected** — Freighter connected to the ShadowFund demo (`GDWT…GFDH`)
+
+![Wallet connected](docs/screenshots/1-wallet-connected.png)
+
+**2 · Balance displayed** — the connected account's on-chain balance ([Stellar Expert](https://stellar.expert/explorer/testnet/account/GDWT4JLSVI77G72RWEMYKN74MKZZD37QBMA3IZU6KPH2L6ONBAQRGFDH))
+
+![Balance displayed](docs/screenshots/2-balance.png)
+
+**3 · Successful testnet transaction** — a real **wallet-signed** sealed `cast_vote` Soroban tx (ZK proof + tlock seal built in-browser)
+
+![Wallet-signed testnet transaction](docs/screenshots/3-transaction.png)
+
+**4 · Transaction result** — the confirmed transaction on-chain ([tx `b8ea07…cf489c`](https://stellar.expert/explorer/testnet/tx/b8ea07b3b03fcbf4058bf74961d1674f590aac299bb6b64c30db1f77b8cf489c))
+
+![Transaction result](docs/screenshots/4-result.png)
+
 ## What it is
 
 DAOs leak. Whales watch the running tally and vote last; members self-censor when their choice is public. And "let an AI run the treasury" is terrifying when a hallucinating agent can move funds.
@@ -79,6 +99,7 @@ SKIP_DEPLOY=1 bash scripts/demo.sh --network testnet
 npm install              # workspaces
 npm run build            # typecheck every TS package (tsc --noEmit) — green
 npm test                 # vitest — 123+ tests, REAL crypto (proofs / tlock / sigs), no skips on the default path
+cd web && npm run dev    # ▶ run the site locally → http://localhost:4321  (ShadowFund + AgentBoard + docs)
 cd web && npm run build  # astro build → dist/  (then: npx vitest run  +  npx vitest run --config functions/vitest.config.ts)
 just test                # umbrella: cargo (contracts) + circuit + TS + x402 + soroswap
 ```
